@@ -6,7 +6,7 @@ import os
 import torch
 import yaml
 from pathlib import Path
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoProcessor, AutoModelForImageTextToText
 
 _model = None
 _processor = None
@@ -39,7 +39,7 @@ def load(config_path="config.yaml"):
 
     print(f"[model] Loading {model_path} on {device} ({dtype})")
     _processor = AutoProcessor.from_pretrained(model_path)
-    _model = AutoModelForCausalLM.from_pretrained(
+    _model = AutoModelForImageTextToText.from_pretrained(
         model_path, dtype=dtype, device_map="auto"
     )
     print(f"[model] Ready")
@@ -219,6 +219,69 @@ def _parse_tool_call(text: str) -> "dict | None":
             pass
 
     return None
+
+
+def infer_with_image(image_path: str, prompt: str, max_new_tokens: int = 512) -> str:
+    """Run multimodal inference with an image. Returns text response."""
+    from PIL import Image
+    import torch
+
+    img = Image.open(image_path).convert("RGB")
+    messages = [
+        {"role": "user", "content": [
+            {"type": "image", "image": img},
+            {"type": "text",  "text": prompt},
+        ]}
+    ]
+    text = _processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+    )
+    inputs = _processor(text=text, images=[img], return_tensors="pt").to(_model.device)
+    input_len = inputs["input_ids"].shape[-1]
+    with torch.no_grad():
+        out = _model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    return _processor.decode(out[0][input_len:], skip_special_tokens=True).strip()
+
+
+def infer_with_audio(audio_path: str, prompt: str = "Transcribe this audio.", max_new_tokens: int = 512) -> str:
+    """Run multimodal inference with audio. Returns transcription/response."""
+    import torch
+    import soundfile as sf
+    import numpy as np
+
+    # Load audio — convert OGG/MP3/etc to PCM via soundfile or ffmpeg fallback
+    try:
+        audio_array, sample_rate = sf.read(audio_path, dtype="float32")
+    except Exception:
+        # ffmpeg fallback for OGG (Telegram voice notes)
+        import subprocess, tempfile, os
+        tmp = tempfile.mktemp(suffix=".wav")
+        subprocess.run(["ffmpeg", "-y", "-i", audio_path, "-ar", "16000", "-ac", "1", tmp],
+                       capture_output=True, timeout=30)
+        audio_array, sample_rate = sf.read(tmp, dtype="float32")
+        os.unlink(tmp)
+
+    if audio_array.ndim > 1:
+        audio_array = audio_array.mean(axis=1)  # stereo → mono
+
+    messages = [
+        {"role": "user", "content": [
+            {"type": "audio", "audio": {"array": audio_array, "sampling_rate": sample_rate}},
+            {"type": "text",  "text": prompt},
+        ]}
+    ]
+    text = _processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+    )
+    inputs = _processor(
+        text=text,
+        audio=[{"array": audio_array, "sampling_rate": sample_rate}],
+        return_tensors="pt"
+    ).to(_model.device)
+    input_len = inputs["input_ids"].shape[-1]
+    with torch.no_grad():
+        out = _model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    return _processor.decode(out[0][input_len:], skip_special_tokens=True).strip()
 
 
 def vram_free_mb() -> int:

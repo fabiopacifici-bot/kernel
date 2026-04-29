@@ -85,6 +85,23 @@ def send_typing(chat_id: str):
         pass
 
 
+def download_file(file_id: str) -> "str | None":
+    """Download a Telegram file by file_id. Returns local temp path or None."""
+    import tempfile, os
+    try:
+        r = requests.get(f"{API_BASE}/getFile", params={"file_id": file_id}, timeout=10)
+        file_path = r.json()["result"]["file_path"]
+        url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        ext = os.path.splitext(file_path)[1] or ".bin"
+        tmp = tempfile.mktemp(suffix=ext)
+        data = requests.get(url, timeout=30)
+        open(tmp, "wb").write(data.content)
+        return tmp
+    except Exception as e:
+        print(f"[bot] download_file error: {e}")
+        return None
+
+
 def handle_callback(chat_id: str, data: str, message_id: int):
     """Handle inline button callbacks."""
     if data.startswith("install_"):
@@ -198,7 +215,7 @@ def _write_collective_memory(user_message: str, reply: str) -> None:
         print(f"[bot] collective memory write error: {e}")
 
 
-def handle_message(chat_id: str, text: str, sender_name: str = ""):
+def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id: str = "", voice_file_id: str = ""):
     global _agent_ready
 
     # Auth check
@@ -210,6 +227,41 @@ def handle_message(chat_id: str, text: str, sender_name: str = ""):
 
     # Send typing indicator immediately
     send_typing(chat_id)
+
+    # Handle image attachments
+    if photo_file_id and not text:
+        text = "Describe this image."
+    if photo_file_id:
+        _ensure_agent()
+        local_path = download_file(photo_file_id)
+        if local_path:
+            try:
+                from model import infer_with_image
+                reply = infer_with_image(local_path, text or "Describe this image.")
+                import os; os.unlink(local_path)
+                send_message(chat_id, f"🦞 {reply}")
+            except Exception as e:
+                send_message(chat_id, f"🦞 Image error: {str(e)[:200]}")
+        else:
+            send_message(chat_id, "🦞 Could not download image.")
+        return
+
+    # Handle voice notes
+    if voice_file_id:
+        _ensure_agent()
+        local_path = download_file(voice_file_id)
+        if local_path:
+            try:
+                from model import infer_with_audio
+                prompt = text if text else "Transcribe this audio and respond."
+                reply = infer_with_audio(local_path, prompt)
+                import os; os.unlink(local_path)
+                send_message(chat_id, f"🦞 {reply}")
+            except Exception as e:
+                send_message(chat_id, f"🦞 Audio error: {str(e)[:200]}")
+        else:
+            send_message(chat_id, "🦞 Could not download voice note.")
+        return
 
     # Slash commands
     if text in ("/start", "/help"):
@@ -809,12 +861,23 @@ def poll():
                 chat_id = msg.get("chat", {}).get("id")
                 text = msg.get("text", "")
                 sender_name = msg.get("from", {}).get("first_name", "") or msg.get("from", {}).get("username", "")
-                if chat_id and text:
+                # Extract media
+                photos = msg.get("photo", [])
+                photo_file_id = photos[-1]["file_id"] if photos else ""  # largest size
+                voice = msg.get("voice", {}) or msg.get("audio", {})
+                voice_file_id = voice.get("file_id", "")
+                caption = msg.get("caption", "")
+                # Use caption as text for media messages
+                effective_text = text or caption
+
+                if chat_id and (effective_text or photo_file_id or voice_file_id):
                     # Send typing indicator immediately (before thread starts)
                     send_typing(str(chat_id))
                     # Handle in thread so polling doesn't block
                     threading.Thread(
-                        target=handle_message, args=(str(chat_id), text, sender_name), daemon=True
+                        target=handle_message,
+                        args=(str(chat_id), effective_text, sender_name, photo_file_id, voice_file_id),
+                        daemon=True
                     ).start()
 
         except KeyboardInterrupt:
