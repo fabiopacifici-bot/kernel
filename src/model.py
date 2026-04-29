@@ -25,6 +25,15 @@ def load(config_path="config.yaml"):
     if _model:
         return _model, _processor
 
+    # If model server is running, skip in-process load entirely
+    try:
+        from model_client import is_server_running
+        if is_server_running():
+            print("[model] Model server detected — skipping in-process load")
+            return None, None
+    except Exception:
+        pass
+
     cfg = load_config(config_path)
     model_source = os.environ.get("MODEL_SOURCE", "local")
 
