@@ -28,8 +28,8 @@ REPO_DIR = str(Path(__file__).parent.parent)
 
 # GitHub update tracking
 _latest_version: str = ""
-_GITHUB_RELEASES_URL = "https://api.github.com/repos/fabiopacifici-bot/microclaw/releases/latest"
-_GITHUB_TAGS_URL = "https://api.github.com/repos/fabiopacifici-bot/microclaw/tags"
+_GITHUB_RELEASES_URL = "https://api.github.com/repos/fabiopacifici-bot/kernel/releases/latest"
+_GITHUB_TAGS_URL = "https://api.github.com/repos/fabiopacifici-bot/kernel/tags"
 
 # Lazy model load
 _agent_ready = False
