@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "inference: tests that require a warm Gemma model (slow, skipped by default in CI)",
+]
+addopts = "-v --tb=short -m 'not inference' -p no:capture"
