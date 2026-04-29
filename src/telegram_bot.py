@@ -779,7 +779,9 @@ def _ensure_agent():
     if not _agent_ready:
         import model as _m
 
-        if _m._model is None:
+        # Check if model server is running OR model is loaded in-process
+        from model_client import is_server_running as _is_srv
+        if _m._model is None and not _is_srv():
             _m.load(CONFIG_PATH)
         import agent
 
@@ -799,7 +801,8 @@ def start_bot_thread():
     import model as _m
     import agent as _agent_mod
 
-    if _m._model is not None:
+    from model_client import is_server_running as _is_srv
+    if _m._model is not None or _is_srv():
         _agent_ready = True
     t = threading.Thread(target=poll, daemon=True, name="kernel-telegram-bot")
     t.start()
@@ -818,9 +821,19 @@ def start_bot_thread():
         print("[bot] Update checker started (6h interval)")
 
 
+OFFSET_FILE = "/tmp/kernel_telegram_offset"
+
+
 def poll():
     """Long-poll Telegram for updates."""
+    # Restore offset from last run so we don't replay already-seen updates
     offset = None
+    try:
+        with open(OFFSET_FILE) as _f:
+            offset = int(_f.read().strip())
+        print(f"[bot] Restored Telegram offset: {offset}")
+    except Exception:
+        pass
     print(f"[bot] Kernel Telegram bot starting...")
 
     while True:
@@ -834,6 +847,12 @@ def poll():
 
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
+                # Persist offset so restarts don't replay seen updates
+                try:
+                    with open(OFFSET_FILE, "w") as _f:
+                        _f.write(str(offset))
+                except Exception:
+                    pass
                 # Handle callback queries (button taps)
                 cb = update.get("callback_query", {})
                 if cb:
@@ -910,9 +929,13 @@ if __name__ == "__main__":
     _mem = _memory_startup.load()
     print(f"[bot] Memory loaded: {len(_mem)} message(s) from previous sessions")
 
-    print("[bot] Pre-loading model...")
+    print("[bot] Checking model availability...")
     import model as _model_module
+    from model_client import is_server_running as _is_srv
 
-    _model_module.load(CONFIG_PATH)
+    if _is_srv():
+        print("[bot] Model server detected — skipping in-process load")
+    else:
+        _model_module.load(CONFIG_PATH)
     print("[bot] Model ready, starting polling...")
     poll()
