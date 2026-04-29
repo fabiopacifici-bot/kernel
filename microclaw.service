@@ -1,0 +1,16 @@
+[Unit]
+Description=MicroClaw — local AI agent (Gemma 4 E2B-it)
+After=network.target
+
+[Service]
+Type=forking
+WorkingDirectory=/home/pacificDev/.openclaw/workspace/repositories/microclaw
+ExecStart=/bin/bash /home/pacificDev/.openclaw/workspace/repositories/microclaw/start.sh
+EnvironmentFile=-/home/pacificDev/.openclaw/workspace/repositories/microclaw/.env
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

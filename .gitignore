@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+data/d3.v7.min.js
+.env
+*.env
+
+# Local workspace symlinks — not for repo
+/skills
+/routines

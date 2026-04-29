@@ -1,0 +1,39 @@
+api:
+  host: 0.0.0.0
+  openclaw_endpoint: http://localhost:18789
+  port: 8769
+audio:
+  enabled: true
+  input_device: default
+  output_device: default
+  wake_word: hey kernel
+cluster:
+  discovery: mdns
+  enabled: false
+  node_id: kernel-local
+  peers: []
+ecosystem:
+  bootstrap_on_startup: true
+  branch: main
+  cache_dir: ~/.kernel/ecosystem
+  community: fabiopacifici-bot/microclaw_community_ecosystem
+  private: fabiopacifici-bot/microclaw_private_ecosystem
+  routines_dir: ~/.kernel/ecosystem
+  skills_dir: ~/.kernel/ecosystem
+kernel_workspace: ~/.kernel/workspace
+logging:
+  file: /tmp/kernel.log
+  level: INFO
+memory:
+  context_budget_mb: 512
+  max_replicas: 3
+  replica_depth_limit: 1
+model:
+  device: auto
+  dtype: bfloat16
+  name: google/gemma-4-E2B-it
+  path: /mnt/e/models/huggingface/hub/models--google--gemma-4-E2B-it/snapshots/4742fe843cc01b9aed62122f6e0ddd13ea48b3d3
+olly_workspace: ""  # set to your OpenClaw workspace path if using Olly integration
+routines_dir: ~/.kernel/ecosystem
+skills_dir: ~/.kernel/ecosystem
+workspace: ~/.kernel/workspace
