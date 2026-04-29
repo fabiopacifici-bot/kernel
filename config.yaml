@@ -33,6 +33,9 @@ model:
   dtype: bfloat16
   name: google/gemma-4-E2B-it
   path: /mnt/e/models/huggingface/hub/models--google--gemma-4-E2B-it/snapshots/4742fe843cc01b9aed62122f6e0ddd13ea48b3d3
+model_server:
+  socket: /tmp/kernel_model.sock
+  log: /tmp/kernel_model_server.log
 olly_workspace: ""  # set to your OpenClaw workspace path if using Olly integration
 routines_dir: ~/.kernel/ecosystem
 skills_dir: ~/.kernel/ecosystem

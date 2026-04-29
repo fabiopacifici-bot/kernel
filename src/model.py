@@ -48,6 +48,15 @@ def load(config_path="config.yaml"):
 
 def infer(messages: list, max_new_tokens=512) -> str:
     """Run a chat completion. messages = OpenAI-style list with string content."""
+    # Try model server first (persistent process)
+    try:
+        from model_client import is_server_running
+        if is_server_running():
+            import model_client as _client
+            return _client.infer(messages, max_new_tokens=max_new_tokens)
+    except Exception:
+        pass
+    # Fallback: in-process loading (original behaviour)
     # Gemma 4 uses 'model' not 'assistant' for assistant role
     formatted = []
     for m in messages:
@@ -85,6 +94,15 @@ def infer_with_tools(
     Gemma emits tool calls → we execute them → feed results back → repeat until final answer.
     Returns the final text response.
     """
+    # Try model server first (persistent process)
+    try:
+        from model_client import is_server_running
+        if is_server_running():
+            import model_client as _client
+            return _client.infer_with_tools(messages, tools, workspace=workspace, max_steps=max_steps, step_callback=step_callback)
+    except Exception:
+        pass
+    # Fallback: in-process loading (original behaviour)
     from tools import execute_tool
     import json
 
@@ -223,6 +241,15 @@ def _parse_tool_call(text: str) -> "dict | None":
 
 def infer_with_image(image_path: str, prompt: str, max_new_tokens: int = 512) -> str:
     """Run multimodal inference with an image. Returns text response."""
+    # Try model server first (persistent process)
+    try:
+        from model_client import is_server_running
+        if is_server_running():
+            import model_client as _client
+            return _client.infer_with_image(image_path, prompt, max_new_tokens=max_new_tokens)
+    except Exception:
+        pass
+    # Fallback: in-process loading (original behaviour)
     from PIL import Image
     import torch
 
@@ -245,6 +272,15 @@ def infer_with_image(image_path: str, prompt: str, max_new_tokens: int = 512) ->
 
 def infer_with_audio(audio_path: str, prompt: str = "Transcribe this audio.", max_new_tokens: int = 512) -> str:
     """Run multimodal inference with audio. Returns transcription/response."""
+    # Try model server first (persistent process)
+    try:
+        from model_client import is_server_running
+        if is_server_running():
+            import model_client as _client
+            return _client.infer_with_audio(audio_path, prompt, max_new_tokens=max_new_tokens)
+    except Exception:
+        pass
+    # Fallback: in-process loading (original behaviour)
     import torch
     import soundfile as sf
     import numpy as np
@@ -286,6 +322,15 @@ def infer_with_audio(audio_path: str, prompt: str = "Transcribe this audio.", ma
 
 def vram_free_mb() -> int:
     """Return free VRAM in MB, or RAM if CPU."""
+    # Try model server first (persistent process)
+    try:
+        from model_client import is_server_running
+        if is_server_running():
+            import model_client as _client
+            return _client.vram_free_mb()
+    except Exception:
+        pass
+    # Fallback: in-process loading (original behaviour)
     if torch.cuda.is_available():
         free, _ = torch.cuda.mem_get_info()
         return free // (1024 * 1024)
