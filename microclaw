@@ -15,8 +15,9 @@ import argparse
 import readline  # enables up-arrow history
 from pathlib import Path
 
-# Resolve real path first (handles symlinks)
-BASE_DIR     = Path(__file__).resolve().parent
+# Always resolve through symlinks → repo root, not the symlink location
+_THIS_FILE   = Path(__file__).resolve()
+BASE_DIR     = _THIS_FILE.parent          # repo root
 CONFIG_PATH  = BASE_DIR / "config.yaml"
 HISTORY_FILE = Path.home() / ".kernel_history"
 
@@ -34,6 +35,8 @@ Kernel CLI — slash commands:
   /use <skill>     activate a skill for this session
   /memory          show recent memory entries
   /clear           clear chat history
+  /update          pull latest release and restart
+  /rollback        revert to previous commit
   /help            show this help
   /exit  /quit     exit
 
@@ -60,8 +63,10 @@ def print_header():
     else:
         import psutil
         vram_info = f"CPU · {psutil.virtual_memory().available/1024**3:.1f}GB RAM free"
+    from version import __version__
+    ver_str = f"v{__version__}".ljust(7)
     print("\n\033[96m╔══════════════════════════════╗")
-    print("║      Kernel  🦞  v0.3.0       ║")
+    print(f"║   Kernel  🦞  {ver_str}           ║")
     print("║   Local AI · Zero tokens     ║")
     print("╚══════════════════════════════╝\033[0m")
     print(f"\033[90m  Model: {model_name}")
@@ -155,7 +160,23 @@ def run_chat():
             continue
 
         # Slash commands (no model needed)
-        if user_input in ("/exit", "/quit", "exit", "quit"):
+        if user_input == "/update":
+            from updater import do_update
+            do_update(notify=print)
+            continue
+        elif user_input == "/rollback":
+            import subprocess
+            print("\033[93m  Rolling back to previous commit...\033[0m")
+            result = subprocess.run(
+                ["git", "reset", "--hard", "HEAD~1"],
+                cwd=str(BASE_DIR), capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                print("\033[92m  Rollback complete. Restart kernel to apply.\033[0m")
+            else:
+                print(f"\033[91m  Rollback failed: {result.stderr[:200]}\033[0m")
+            continue
+        elif user_input in ("/exit", "/quit", "exit", "quit"):
             print("\033[90mBye.\033[0m")
             save_history()
             mem_save(history)

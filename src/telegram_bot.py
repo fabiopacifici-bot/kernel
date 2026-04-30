@@ -28,8 +28,7 @@ REPO_DIR = str(Path(__file__).parent.parent)
 
 # GitHub update tracking
 _latest_version: str = ""
-_GITHUB_RELEASES_URL = "https://api.github.com/repos/fabiopacifici-bot/kernel/releases/latest"
-_GITHUB_TAGS_URL = "https://api.github.com/repos/fabiopacifici-bot/kernel/tags"
+# GitHub URLs now live in src/updater.py
 
 # Lazy model load
 _agent_ready = False
@@ -629,56 +628,46 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
 
 
 # ---------------------------------------------------------------------------
-# Self-update helpers
+# Self-update helpers — delegated to src/updater.py
 # ---------------------------------------------------------------------------
 
-def _fetch_latest_version() -> str:
-    """Fetch the latest tag from GitHub. Returns empty string on error."""
-    try:
-        # Try releases first
-        resp = requests.get(_GITHUB_RELEASES_URL, timeout=10, headers={"Accept": "application/vnd.github+json"})
-        if resp.status_code == 200:
-            tag = resp.json().get("tag_name", "")
-            if tag:
-                return tag.lstrip("v")
-        # Fall back to tags API (works even without a GitHub Release)
-        resp = requests.get(_GITHUB_TAGS_URL, params={"per_page": 100}, timeout=10, headers={"Accept": "application/vnd.github+json"})
-        if resp.status_code == 200:
-            tags = resp.json()
-            if tags:
-                # Tags are returned newest-first
-                # Sort by semver to get true latest
-                from packaging.version import Version as _V
-                try:
-                    tags.sort(key=lambda t: _V(t["name"].lstrip("v")), reverse=True)
-                except Exception:
-                    pass
-                return tags[0]["name"].lstrip("v")
-    except Exception as e:
-        print(f"[bot] update-check error: {e}")
-    return ""
+from updater import (
+    get_current_version as _get_current_version,
+    fetch_latest_version as _fetch_latest_version,
+    check_update_available as _check_update_available,
+    do_update as _do_update,
+)
+
+
+def _restart_via_start_sh():
+    """Launch start.sh and exit so systemd/start.sh relaunches the process."""
+    subprocess.Popen(
+        ["bash", os.path.join(REPO_DIR, "start.sh")],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    import threading
+    threading.Timer(2.0, lambda: os._exit(0)).start()
 
 
 def _check_for_update(notify_chat_id: str = ""):
     """Check GitHub for a newer release. Optionally notify via Telegram."""
     global _latest_version
-    from version import __version__
-
+    current = _get_current_version()
     latest = _fetch_latest_version()
     if not latest:
         return
     _latest_version = latest
-    if latest != __version__ and notify_chat_id:
+    if latest != current and notify_chat_id:
         send_message(
             notify_chat_id,
-            f"🆕 Kernel v{latest} available (current: v{__version__}). /update to apply.",
+            f"🆕 Kernel v{latest} available (current: v{current}). /update to apply.",
         )
-        print(f"[bot] Update available: {latest} (current: {__version__})")
+        print(f"[bot] Update available: {latest} (current: {current})")
 
 
 def _update_check_loop(chat_id: str):
     """Background thread: check for updates every 6 hours."""
-    # First check after a short delay so startup isn't hammered
     time.sleep(30)
     while True:
         _check_for_update(notify_chat_id=chat_id)
@@ -689,72 +678,21 @@ def _handle_restart(chat_id: str):
     """Restart the process without pulling. Called when user types /restart."""
     send_message(chat_id, "🔄 Restarting Kernel... back in ~30s.")
     try:
-        subprocess.Popen(
-            ["bash", os.path.join(REPO_DIR, "start.sh")],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        import threading
-        threading.Timer(2.0, lambda: os._exit(0)).start()
+        _restart_via_start_sh()
     except Exception as e:
         send_message(chat_id, f"❌ Restart failed: {str(e)[:200]}")
 
 
 def _handle_update(chat_id: str):
-    """Execute git pull + restart. Called only when user explicitly types /update."""
-    from version import __version__
-
-    send_message(chat_id, "🔍 Checking for updates...")
-
-    # Always do a fresh check — never trust the cached background value
-    latest = _fetch_latest_version()
-    if not latest:
-        send_message(chat_id, "❌ Could not reach GitHub to check for updates.")
-        return
-
-    if latest == __version__:
-        send_message(chat_id, f"✅ Already on latest version (v{__version__}). Nothing to update.")
-        return
-
-    send_message(chat_id, f"🔄 Updating v{__version__} → v{latest}... pulling master")
-    try:
-        pull = subprocess.run(
-            ["git", "pull", "origin", "master"],
-            cwd=REPO_DIR,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        print(f"[bot] git pull: {pull.stdout} {pull.stderr}")
-        if pull.returncode != 0:
-            send_message(chat_id, f"❌ git pull failed: {pull.stderr[:200]}")
-            return
-        # Read version from disk after pull — may differ from running version
-        try:
-            import importlib.util, pathlib
-            spec = importlib.util.spec_from_file_location("version", pathlib.Path(REPO_DIR) / "src" / "version.py")
-            _ver_mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(_ver_mod)
-            disk_version = _ver_mod.__version__
-        except Exception:
-            disk_version = latest
-        if "Already up to date" in pull.stdout and disk_version == __version__:
-            send_message(chat_id, f"✅ Already on latest version (v{__version__}). No restart needed.")
-            return
-        send_message(chat_id, f"✅ Updated to v{disk_version} — restarting. Back in ~30s.")
-        subprocess.Popen(
-            ["bash", os.path.join(REPO_DIR, "start.sh")],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        import threading
-        threading.Timer(2.0, lambda: os._exit(0)).start()
-    except Exception as e:
-        send_message(chat_id, f"❌ Update failed: {str(e)[:200]}")
+    """Execute git pull + restart via shared updater. Called when user types /update."""
+    _do_update(
+        notify=lambda msg: send_message(chat_id, msg),
+        restart_fn=_restart_via_start_sh,
+    )
 
 
 def _handle_rollback(chat_id: str):
-    """Revert one commit + restart. Called only when user explicitly types /rollback."""
+    """Revert one commit + restart. Called when user types /rollback."""
     try:
         result = subprocess.run(
             ["git", "reset", "--hard", "HEAD~1"],
@@ -764,12 +702,8 @@ def _handle_rollback(chat_id: str):
             timeout=30,
         )
         print(f"[bot] git reset: {result.stdout} {result.stderr}")
-        send_message(chat_id, "⏪ Rolled back to previous version.")
-        subprocess.Popen(
-            ["bash", os.path.join(REPO_DIR, "start.sh")],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        send_message(chat_id, "⏪ Rolled back to previous version. Restarting...")
+        _restart_via_start_sh()
     except Exception as e:
         send_message(chat_id, f"❌ Rollback failed: {str(e)[:200]}")
 

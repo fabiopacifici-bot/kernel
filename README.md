@@ -4,21 +4,32 @@
 > Zero cloud. Zero token cost. Runs on the edge.  
 > Talks to you via Telegram, CLI, or API.
 
-**Current stable: v0.5.2**
+**Current stable: v0.7.0**
 
 ---
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/fabiopacifici-bot/microclaw
-cd microclaw
+git clone https://github.com/fabiopacifici-bot/kernel
+cd kernel
 cp .env.example .env  # add your MICROCLAW_TELEGRAM_BOT_TOKEN + MICROCLAW_TELEGRAM_CHAT_ID
 pip install -r requirements.txt
 bash start.sh
 ```
 
 That's it. The agent starts on port 8769, loads the model, and connects the Telegram bot.
+
+### Make the `kernel` CLI globally available
+
+After cloning, run this once to create a symlink in your PATH:
+
+```bash
+ln -sf "$(pwd)/microclaw" ~/.local/bin/kernel
+```
+
+The symlink always points to the live repo — so `git pull` or `/update` automatically
+picks up the latest CLI without re-running this step.
 
 ### Requirements
 
