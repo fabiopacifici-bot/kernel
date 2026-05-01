@@ -75,6 +75,44 @@ TOOLS = [
                 "required": ["path", "content"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_skill",
+            "description": "Execute a named skill from the Kernel skill ecosystem. Use this when the user's request matches a skill's purpose (e.g. browser search, image generation, GitHub operations, security scan). Pass the user's original request as 'input'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "skill_name": {
+                        "type": "string",
+                        "description": "The skill name (e.g. 'browser-automation', 'github', 'security-scanner')"
+                    },
+                    "input": {
+                        "type": "string",
+                        "description": "The user's request or task to pass to the skill"
+                    }
+                },
+                "required": ["skill_name", "input"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_routine",
+            "description": "Execute a named routine from the Kernel routine library. Routines are multi-step procedures (e.g. morning-briefing, security-check, deploy, end-of-session).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "routine_name": {
+                        "type": "string",
+                        "description": "The routine name (e.g. 'morning-briefing', 'security-check', 'deploy', 'end-of-session')"
+                    }
+                },
+                "required": ["routine_name"]
+            }
+        }
     }
 ]
 
@@ -141,5 +179,59 @@ def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
             return f"Written to {path}"
         except Exception as e:
             return f"(error: {e})"
+
+    elif name == "run_skill":
+        skill_name = arguments.get("skill_name")
+        input_text = arguments.get("input")
+        if not skill_name:
+            return "(error: run_skill requires 'skill_name' argument)"
+        if not input_text:
+            return "(error: run_skill requires 'input' argument)"
+        try:
+            import yaml as _yaml
+            from pathlib import Path as _Path
+            from skills import load_all as _load_skills, find as _find_skill, run as _run_skill
+            from model import infer as _infer
+            config_path = str(_Path(__file__).parent.parent / "config.yaml")
+            cfg = _yaml.safe_load(open(config_path))
+            skills_dir = cfg.get("skills_dir", "./skills")
+            import os as _os
+            skills_dir = _os.path.expanduser(skills_dir)
+            all_skills = _load_skills(skills_dir)
+            skill = _find_skill(skill_name, all_skills)
+            if not skill:
+                # Try partial match
+                skill = next((s for s in all_skills if skill_name.lower() in s["name"].lower()), None)
+            if not skill:
+                available = [s["name"] for s in all_skills]
+                return f"(error: skill '{skill_name}' not found. Available: {', '.join(available)})"
+            return _run_skill(skill, input_text, _infer)
+        except Exception as e:
+            return f"(error running skill '{skill_name}': {e})"
+
+    elif name == "run_routine":
+        routine_name = arguments.get("routine_name")
+        if not routine_name:
+            return "(error: run_routine requires 'routine_name' argument)"
+        try:
+            import yaml as _yaml
+            from pathlib import Path as _Path
+            from routines import load_all as _load_routines, find as _find_routine, run as _run_routine
+            from model import infer as _infer
+            config_path = str(_Path(__file__).parent.parent / "config.yaml")
+            cfg = _yaml.safe_load(open(config_path))
+            routines_dir = cfg.get("routines_dir", "./routines")
+            import os as _os
+            routines_dir = _os.path.expanduser(routines_dir)
+            all_routines = _load_routines(routines_dir)
+            routine = _find_routine(routine_name, all_routines)
+            if not routine:
+                routine = next((r for r in all_routines if routine_name.lower() in r["name"].lower()), None)
+            if not routine:
+                available = [r["name"] for r in all_routines]
+                return f"(error: routine '{routine_name}' not found. Available: {', '.join(available)})"
+            return _run_routine(routine, _infer)
+        except Exception as e:
+            return f"(error running routine '{routine_name}': {e})"
 
     return f"Unknown tool: {name}"
