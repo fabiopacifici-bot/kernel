@@ -6,13 +6,35 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import yaml, agent, replica as rep, model as mdl
 import bootstrap as _bootstrap
-import os
+import os, json, time, uuid
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 app = FastAPI(title="Kernel", version="0.2.0")
 
 _cfg = {}
+
+# ── Interaction logger ──────────────────────────────────────────────────────
+_LOG_DIR  = os.path.expanduser("~/.kernel/workspace/logs")
+_LOG_FILE = os.path.join(_LOG_DIR, "kernel_calls.jsonl")
+os.makedirs(_LOG_DIR, exist_ok=True)
+
+def _log_interaction(prompt: str, reply: str, source: str = "api", meta: dict | None = None) -> None:
+    """Append one JSONL record to the interaction log (non-blocking best-effort)."""
+    try:
+        record = {
+            "id":        str(uuid.uuid4()),
+            "timestamp": time.time(),
+            "source":    source,
+            "prompt":    prompt,
+            "reply":     reply,
+            "meta":      meta or {},
+        }
+        with open(_LOG_FILE, "a") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception as exc:
+        print(f"[logger] warning: could not write interaction log: {exc}")
+# ────────────────────────────────────────────────────────────────────────────
 
 
 class MessageIn(BaseModel):
@@ -71,9 +93,12 @@ def message(body: MessageIn):
             _tb.handle_message(_tb.ALLOWED_CHAT_ID or "api", text)
         finally:
             _tb.send_message = _orig_send
+        result = "\n".join(_replies) if _replies else ""
+        _log_interaction(text, result, source="api-slash")
         if _replies:
-            return {"reply": "\n".join(_replies)}
+            return {"reply": result}
     reply = agent.triage(body.message)
+    _log_interaction(body.message, reply, source="api")
     return {"reply": reply}
 
 
