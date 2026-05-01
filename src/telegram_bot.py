@@ -237,7 +237,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             try:
                 from model import infer_with_image
                 reply = infer_with_image(local_path, text or "Describe this image.")
-                import os; os.unlink(local_path)
+                os.unlink(local_path)
                 send_message(chat_id, f"🦞 {reply}")
             except Exception as e:
                 send_message(chat_id, f"🦞 Image error: {str(e)[:200]}")
@@ -254,7 +254,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
                 from model import infer_with_audio
                 prompt = text if text else "Transcribe this audio and respond."
                 reply = infer_with_audio(local_path, prompt)
-                import os; os.unlink(local_path)
+                os.unlink(local_path)
                 send_message(chat_id, f"🦞 {reply}")
             except Exception as e:
                 send_message(chat_id, f"🦞 Audio error: {str(e)[:200]}")

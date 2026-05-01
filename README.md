@@ -2,7 +2,8 @@
 
 > A local-first AI agent powered by Gemma 4 E2B-it.  
 > Zero cloud. Zero token cost. Runs on the edge.  
-> Talks to you via Telegram, CLI, or API.
+> Talks to you via Telegram, CLI, or API.  
+> Supports multimodal input: images and voice via Gemma 4.
 
 **Current stable: v0.7.0**
 
@@ -133,7 +134,28 @@ Telegram / CLI / API
    tools.py → shell, files, web, memory
 ```
 
-A single uvicorn process owns both the API server and the Telegram bot (bot runs as a daemon thread inside the startup event). `start.sh` kills port 8769 and relaunches everything.
+A single uvicorn process owns both the API server and the Telegram bot (bot runs as a daemon thread inside the startup event). `start.sh` kills port 8769 and relaunches the API — the model server is never restarted if it's already healthy.
+
+### Model Persistence
+
+The model server is a **separate long-lived process** (`src/model_server.py`) that:
+- Loads Gemma 4 once at startup (~30–120s on first boot)
+- Survives API and bot restarts (no model reload needed)
+- Exposes JSON-RPC over Unix socket (`/tmp/kernel_model.sock`)
+- Refuses to start a second instance (deduplication via socket probe on startup)
+- Guards against OOM: refuses to load if < 6000MB VRAM free at startup
+- Reports `vram_warning: true` in `/health` if free VRAM drops below 2000MB
+
+### VRAM Requirements
+
+| Component | Requirement |
+|---|---|
+| Gemma 4 E2B-it (bfloat16) | ~5.5GB VRAM |
+| Minimum to load | 6GB free at startup |
+| Recommended GPU | 8GB+ VRAM |
+
+> **Note:** `device_map="auto"` may offload layers to CPU if contiguous VRAM is fragmented.
+> Inference works but is slower. Check `/tmp/kernel_model_server.log` for offloading warnings.
 
 ---
 
@@ -225,10 +247,12 @@ Set your private ecosystem repo:
 - Multimodal support: send images and voice notes to Kernel via Telegram
 - Gemma 4 natively processes images and audio (no extra model needed)
 - `infer_with_image()` and `infer_with_audio()` via model_server socket
-- Fix: tools.py unguarded dict key access → safe `.get()` with error feedback
+- Fix: `tools.py` unguarded dict key access → safe `.get()` with error feedback
 - Fix: `_handle_infer` type guard — string messages wrapped as user turn
 - Fix: VRAM guard before model load — refuses load if < 6000MB free
 - Fix: model_server dedup — stale socket detection, clean exit if already running
+- Fix: `telegram_bot.py` `UnboundLocalError` for `os` in `handle_message` (inline import removed)
+- Fix: API `/message` with empty body returns immediately instead of hanging on inference
 - VRAM warning flag in `/health` when free VRAM < 2000MB
 
 ### v0.6.5 — April 30, 2026

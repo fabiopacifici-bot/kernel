@@ -80,6 +80,8 @@ def message(body: MessageIn):
     """Main entry point — triage and respond."""
     # Route slash commands through the same handler as Telegram bot
     text = body.message.strip()
+    if not text:
+        return {"reply": ""}
     if text.startswith("/"):
         import telegram_bot as _tb
         import io, contextlib
