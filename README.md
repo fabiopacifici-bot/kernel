@@ -2,7 +2,8 @@
 
 > A local-first AI agent powered by Gemma 4 E2B-it.  
 > Zero cloud. Zero token cost. Runs on the edge.  
-> Talks to you via Telegram, CLI, or API.
+> Talks to you via Telegram, CLI, or API.  
+> Supports multimodal input: images and voice via Gemma 4.
 
 **Current stable: v0.7.0**
 
@@ -34,7 +35,7 @@ picks up the latest CLI without re-running this step.
 ### Requirements
 
 - Python 3.11+
-- CUDA GPU with 8GB+ VRAM recommended (CPU fallback available)
+- CUDA GPU with **6GB+ VRAM** (Gemma 4 E2B-it requires ~5.5GB in bfloat16; 8GB+ recommended)
 - A Telegram bot token (create one via [@BotFather](https://t.me/botfather))
 
 ---
@@ -133,7 +134,28 @@ Telegram / CLI / API
    tools.py → shell, files, web, memory
 ```
 
-A single uvicorn process owns both the API server and the Telegram bot (bot runs as a daemon thread inside the startup event). `start.sh` kills port 8769 and relaunches everything.
+A single uvicorn process owns both the API server and the Telegram bot (bot runs as a daemon thread inside the startup event). `start.sh` kills port 8769 and relaunches the API — the model server is never restarted if it's already healthy.
+
+### Model Persistence
+
+The model server is a **separate long-lived process** (`src/model_server.py`) that:
+- Loads Gemma 4 once at startup (~30–120s on first boot)
+- Survives API and bot restarts (no model reload needed)
+- Exposes JSON-RPC over Unix socket (`/tmp/kernel_model.sock`)
+- Refuses to start a second instance (deduplication via socket probe on startup)
+- Guards against OOM: refuses to load if < 6000MB VRAM free at startup
+- Reports `vram_warning: true` in `/health` if free VRAM drops below 2000MB
+
+### VRAM Requirements
+
+| Component | Requirement |
+|---|---|
+| Gemma 4 E2B-it (bfloat16) | ~5.5GB VRAM |
+| Minimum to load | 6GB free at startup |
+| Recommended GPU | 8GB+ VRAM |
+
+> **Note:** `device_map="auto"` may offload layers to CPU if contiguous VRAM is fragmented.
+> Inference works but is slower. Check `/tmp/kernel_model_server.log` for offloading warnings.
 
 ---
 
@@ -210,7 +232,7 @@ Set your private ecosystem repo:
 
 | Component | Technology |
 |---|---|
-| Model | `google/gemma-4-E2B-it` (Gemma 4, 2.3B effective params) |
+| Model | `google/gemma-4-E2B-it` (Gemma 4, 2.3B effective params, ~5.5GB VRAM in bfloat16) |
 | Inference | `transformers` + PyTorch (CUDA preferred, CPU fallback) |
 | API | FastAPI + uvicorn (port 8769) |
 | Bot | python-requests long-polling (no python-telegram-bot dependency) |
@@ -220,6 +242,27 @@ Set your private ecosystem repo:
 ---
 
 ## Changelog
+
+### v0.7.0 — May 1, 2026
+- Multimodal support: send images and voice notes to Kernel via Telegram
+- Gemma 4 natively processes images and audio (no extra model needed)
+- `infer_with_image()` and `infer_with_audio()` via model_server socket
+- Fix: `tools.py` unguarded dict key access → safe `.get()` with error feedback
+- Fix: `_handle_infer` type guard — string messages wrapped as user turn
+- Fix: VRAM guard before model load — refuses load if < 6000MB free
+- Fix: model_server dedup — stale socket detection, clean exit if already running
+- Fix: `telegram_bot.py` `UnboundLocalError` for `os` in `handle_message` (inline import removed)
+- Fix: API `/message` with empty body returns immediately instead of hanging on inference
+- VRAM warning flag in `/health` when free VRAM < 2000MB
+
+### v0.6.5 — April 30, 2026
+- Server-side interaction logger for dataset collection
+- Shared updater.py + CLI symlink install + live version in header
+
+### v0.6.0 — April 29, 2026
+- Model persistence: Gemma 4 survives API restarts via Unix socket IPC
+- Separate model_server process keeps model in VRAM across bot/API restarts
+- 46-test suite (unit + integration)
 
 ### v0.5.2 — April 28, 2026
 - `/help` now sends inline tappable buttons for every command
@@ -285,5 +328,5 @@ Set your private ecosystem repo:
 ## Status
 
 ✅ **Active development.** Running in production.  
-**Repo:** [fabiopacifici-bot/microclaw](https://github.com/fabiopacifici-bot/microclaw)  
+**Repo:** [fabiopacifici-bot/kernel](https://github.com/fabiopacifici-bot/kernel)  
 **Author:** Fabio (NSA Agency)
