@@ -60,6 +60,18 @@ def _load_model(config_path="config.yaml"):
     device = cfg["model"].get("device", "cuda")
     dtype = getattr(torch, cfg["model"].get("dtype", "bfloat16"))
 
+    # VRAM guard: ensure enough free VRAM before loading
+    if torch.cuda.is_available():
+        free_bytes, _ = torch.cuda.mem_get_info()
+        free_mb = free_bytes // (1024 * 1024)
+        min_required_mb = 6000  # Gemma 4 E2B needs ~5.5GB
+        if free_mb < min_required_mb:
+            msg = (f"[model_server] VRAM guard: only {free_mb}MB free, "
+                   f"need {min_required_mb}MB. Refusing to load to prevent OOM.")
+            print(msg, flush=True)
+            raise RuntimeError(msg)
+        print(f"[model_server] VRAM check passed: {free_mb}MB free", flush=True)
+
     print(f"[model_server] Loading {model_path} on {device} ({dtype}) ...", flush=True)
     _processor = AutoProcessor.from_pretrained(model_path)
     _model = AutoModelForImageTextToText.from_pretrained(
@@ -76,8 +88,16 @@ def _handle_infer(params: dict) -> dict:
     """Standard chat inference."""
     import torch
 
-    messages = params["messages"]
+    messages = params.get("messages", [])
     max_new_tokens = params.get("max_new_tokens", 512)
+
+    # Guard: if messages is a plain string, wrap it as a user message
+    if isinstance(messages, str):
+        messages = [{"role": "user", "content": messages}]
+
+    # Validate messages is a list of dicts
+    if not isinstance(messages, list):
+        return {"error": f"'messages' must be a list, got {type(messages).__name__}"}
 
     formatted = []
     for m in messages:
@@ -265,9 +285,10 @@ def _handle_vram_free_mb(params: dict) -> dict:
 
 def _handle_health(params: dict) -> dict:
     import torch
-    vram = _handle_vram_free_mb({})["vram_free_mb"]
+    vram_free = _handle_vram_free_mb({}).get("vram_free_mb", 0)
     model_name = _config["model"].get("name", "unknown") if _config else "unknown"
-    return {"status": "ready", "model": model_name, "vram_free_mb": vram}
+    vram_warning = vram_free < 2000
+    return {"status": "ready", "model": model_name, "vram_free_mb": vram_free, "vram_warning": vram_warning}
 
 
 # ---------------------------------------------------------------------------
@@ -359,9 +380,20 @@ def main():
     if args.socket:
         socket_path = args.socket  # CLI flag wins
 
-    # Clean up stale socket
+    # Handle existing socket: if live, exit cleanly; if stale, remove it
     if os.path.exists(socket_path):
-        os.unlink(socket_path)
+        # Try connecting to see if it's alive
+        try:
+            test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            test_sock.settimeout(2)
+            test_sock.connect(socket_path)
+            test_sock.close()
+            print(f"[model_server] Socket {socket_path} is already live — another instance is running. Exiting.", flush=True)
+            sys.exit(0)
+        except (ConnectionRefusedError, OSError):
+            # Stale socket — remove it and proceed
+            print(f"[model_server] Removing stale socket {socket_path}", flush=True)
+            os.unlink(socket_path)
 
     # Load model
     _load_model(args.config)

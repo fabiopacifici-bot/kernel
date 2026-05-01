@@ -82,7 +82,9 @@ TOOLS = [
 def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
     """Execute a tool call and return the result as a string."""
     if name == "exec_shell":
-        cmd = arguments["command"]
+        cmd = arguments.get("command")
+        if not cmd:
+            return "(error: exec_shell requires 'command' argument)"
         timeout = arguments.get("timeout", 30)
         try:
             result = subprocess.run(
@@ -97,7 +99,9 @@ def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
             return f"(error: {e})"
 
     elif name == "read_file":
-        path = arguments["path"]
+        path = arguments.get("path")
+        if not path:
+            return "(error: read_file requires 'path' argument)"
         import os
         path = os.path.expanduser(path)
         if not path.startswith("/"):
@@ -111,7 +115,9 @@ def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
     elif name == "http_get":
         if not _HAS_REQUESTS:
             return "(error: requests library not available)"
-        url = arguments["url"]
+        url = arguments.get("url")
+        if not url:
+            return "(error: http_get requires 'url' argument)"
         timeout = arguments.get("timeout", 5)
         try:
             r = _requests.get(url, timeout=timeout)
@@ -120,13 +126,18 @@ def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
             return f"(error: {e})"
 
     elif name == "write_file":
-        path = arguments["path"]
+        path = arguments.get("path")
+        if not path:
+            return "(error: write_file requires 'path' argument)"
+        content = arguments.get("content")
+        if content is None:
+            return "(error: write_file requires 'content' argument)"
         if not path.startswith("/"):
             path = path.replace("~/", "~/"); path = f"{workspace}/{path}" if not path.startswith("/") else path
         try:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w") as f:
-                f.write(arguments["content"])
+                f.write(content)
             return f"Written to {path}"
         except Exception as e:
             return f"(error: {e})"
