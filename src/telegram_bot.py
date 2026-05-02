@@ -294,7 +294,8 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             [{"text": "📦 /packages", "callback_data": "/packages"}],
             [{"text": "📊 /status", "callback_data": "/status"}, {"text": "🔇 /verbose", "callback_data": "/verbose"}],
             [{"text": "🔍 /search ...", "callback_data": "/search "}, {"text": "📦 /install ...", "callback_data": "/install "}],
-            [{"text": "🤖 /replica list", "callback_data": "/replica list"}, {"text": "⏹ /replica stop", "callback_data": "/replica stop "}],
+            [{"text": "🤖 /replica list", "callback_data": "/replica list"}, {"text": "➕ /replica spawn", "callback_data": "/replica spawn"}],
+            [{"text": "⏹ /replica stop", "callback_data": "/replica stop "}],
             [{"text": "🔄 /update", "callback_data": "/update"}, {"text": "🔁 /restart", "callback_data": "/restart"}],
             [{"text": "⏪ /rollback", "callback_data": "/rollback"}],
         ]
@@ -537,6 +538,37 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
                     lines.append(f"• `{r['name']}` ({r['role']}) — {status}")
                 send_message(chat_id, "\n".join(lines))
 
+        elif sub == "spawn":
+            if len(parts) > 2:
+                # /replica spawn <name> [prompt]
+                spawn_parts = parts[2].split(None, 1)
+                name = spawn_parts[0]
+                prompt = spawn_parts[1] if len(spawn_parts) > 1 else None
+                body = {"name": name}
+                if prompt:
+                    body["custom_prompt"] = prompt
+                result = _call_api("POST", "/replica/named", body)
+                if result and result.get("status") == "spawned":
+                    send_message(chat_id, f"✅ Replica `{name}` spawned and ready.\nSend messages to it with:\n`/replica msg {name} <your message>`")
+                else:
+                    reason = result.get("reason", "unknown error") if result else "unreachable"
+                    send_message(chat_id, f"❌ Could not spawn replica: {reason}")
+            else:
+                send_message(chat_id, "Usage:\n`/replica spawn <name>` — spawn with default prompt\n`/replica spawn <name> <custom prompt>` — spawn with custom role\n\nExample:\n`/replica spawn analyst You are a data analyst.`")
+
+        elif sub == "msg" and len(parts) > 2:
+            msg_parts = parts[2].split(None, 1)
+            name = msg_parts[0]
+            user_msg = msg_parts[1] if len(msg_parts) > 1 else ""
+            if not user_msg:
+                send_message(chat_id, "Usage: `/replica msg <name> <message>`")
+            else:
+                result = _call_api("POST", f"/replica/{name}/message", {"message": user_msg})
+                if result and "reply" in result:
+                    send_message(chat_id, f"🤖 *{name}:* {result['reply']}")
+                else:
+                    send_message(chat_id, f"❌ Replica `{name}` not found or error.")
+
         elif sub == "stop" and len(parts) > 2:
             name = parts[2].strip()
             result = _call_api("DELETE", f"/replica/{name}")
@@ -546,7 +578,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
                 send_message(chat_id, f"❌ Could not stop `{name}`.")
 
         else:
-            send_message(chat_id, "Usage:\n`/replica list` — show active replicas\n`/replica stop <name>` — stop a named replica")
+            send_message(chat_id, "Usage:\n`/replica list` — show active replicas\n`/replica spawn <name> [prompt]` — spawn a named replica\n`/replica msg <name> <message>` — chat with a replica\n`/replica stop <name>` — stop a named replica")
         return
 
     if text.startswith("/run "):
