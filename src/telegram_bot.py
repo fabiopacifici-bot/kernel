@@ -295,7 +295,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             [{"text": "📊 /status", "callback_data": "/status"}, {"text": "🔇 /verbose", "callback_data": "/verbose"}],
             [{"text": "🔍 /search ...", "callback_data": "/search "}, {"text": "📦 /install ...", "callback_data": "/install "}],
             [{"text": "🤖 /replica list", "callback_data": "/replica list"}, {"text": "➕ /replica spawn", "callback_data": "/replica spawn"}],
-            [{"text": "⏹ /replica stop", "callback_data": "/replica stop "}],
+            [{"text": "👥 /replica clone", "callback_data": "/replica clone"}, {"text": "⏹ /replica stop", "callback_data": "/replica stop "}],
             [{"text": "🔄 /update", "callback_data": "/update"}, {"text": "🔁 /restart", "callback_data": "/restart"}],
             [{"text": "⏪ /rollback", "callback_data": "/rollback"}],
         ]
@@ -527,7 +527,37 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         parts = text.split(None, 2)
         sub = parts[1] if len(parts) > 1 else "list"
 
-        if sub == "list":
+        if sub == "clone":
+            if len(parts) > 2:
+                # /replica clone <agent_name> — spawn from agents dir
+                agent_name = parts[2].strip().lower().replace('.md', '')
+                agents_dir = Path.home() / '.openclaw' / 'workspace-client' / 'agents'
+                brief_path = agents_dir / f"{agent_name}.md"
+                if not brief_path.exists():
+                    available = [f.stem for f in agents_dir.glob('*.md')] if agents_dir.exists() else []
+                    send_message(chat_id, f"❌ Agent `{agent_name}` not found.\nAvailable: {', '.join(available) or 'none'}")
+                else:
+                    result = _call_api("POST", "/replica/named", {
+                        "name": agent_name,
+                        "role": "custom",
+                        "brief_path": str(brief_path)
+                    })
+                    if result and result.get("status") == "spawned":
+                        send_message(chat_id, f"✅ Replica `{agent_name}` spawned with brief.\nChat: `/replica msg {agent_name} <message>`")
+                    else:
+                        reason = result.get("reason", "unknown") if result else "unreachable"
+                        send_message(chat_id, f"❌ Could not spawn: {reason}")
+            else:
+                # Show dynamic list of available agents as buttons
+                agents_dir = Path.home() / '.openclaw' / 'workspace-client' / 'agents'
+                agents = sorted([f.stem for f in agents_dir.glob('*.md')]) if agents_dir.exists() else []
+                if not agents:
+                    send_message(chat_id, "No agents found in workspace-client/agents/")
+                else:
+                    buttons = [[{"text": f"🤖 {a}", "callback_data": f"/replica clone {a}"}] for a in agents]
+                    send_buttons(chat_id, "*Clone an agent replica:*\nSelect an agent to spawn with their brief loaded:", buttons)
+
+        elif sub == "list":
             active = _call_api("GET", "/replica/active") or []
             if not active:
                 send_message(chat_id, "No active replicas.")
@@ -578,7 +608,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
                 send_message(chat_id, f"❌ Could not stop `{name}`.")
 
         else:
-            send_message(chat_id, "Usage:\n`/replica list` — show active replicas\n`/replica spawn <name> [prompt]` — spawn a named replica\n`/replica msg <name> <message>` — chat with a replica\n`/replica stop <name>` — stop a named replica")
+            send_message(chat_id, "Usage:\n`/replica list` — show active replicas\n`/replica clone` — spawn from available agents (dynamic list)\n`/replica clone <name>` — spawn a specific agent\n`/replica spawn <name> [prompt]` — spawn with custom prompt\n`/replica msg <name> <message>` — chat with a replica\n`/replica stop <name>` — stop a named replica")
         return
 
     if text.startswith("/run "):
