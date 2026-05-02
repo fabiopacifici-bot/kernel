@@ -294,6 +294,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             [{"text": "📦 /packages", "callback_data": "/packages"}],
             [{"text": "📊 /status", "callback_data": "/status"}, {"text": "🔇 /verbose", "callback_data": "/verbose"}],
             [{"text": "🔍 /search ...", "callback_data": "/search "}, {"text": "📦 /install ...", "callback_data": "/install "}],
+            [{"text": "🤖 /replica list", "callback_data": "/replica list"}, {"text": "⏹ /replica stop", "callback_data": "/replica stop "}],
             [{"text": "🔄 /update", "callback_data": "/update"}, {"text": "🔁 /restart", "callback_data": "/restart"}],
             [{"text": "⏪ /rollback", "callback_data": "/rollback"}],
         ]
