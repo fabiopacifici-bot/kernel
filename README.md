@@ -91,18 +91,18 @@ curl http://localhost:8769/health
 # Spawn a named persistent replica with brief injection
 curl -X POST http://localhost:8769/replica/named \
   -H 'Content-Type: application/json' \
-  -d '{"name": "lawy", "role": "custom", "brief_path": "~/.openclaw/workspace-client/projects/multistack/brief.md"}'
+  -d '{"name": "analyst", "role": "custom", "brief_path": "/path/to/your/brief.md"}'
 
 # Send a message to a named replica
-curl -X POST http://localhost:8769/replica/lawy/message \
+curl -X POST http://localhost:8769/replica/analyst/message \
   -H 'Content-Type: application/json' \
-  -d '{"message": "What are the IP boundaries for this meeting?"}'
+  -d '{"message": "Summarise the key points from the brief."}'
 
 # List active replicas
 curl http://localhost:8769/replica/active
 
 # Stop a named replica
-curl -X DELETE http://localhost:8769/replica/lawy
+curl -X DELETE http://localhost:8769/replica/analyst
 ```
 
 ---
@@ -159,9 +159,9 @@ Kernel supports spawning **named persistent replicas** — isolated agent instan
 
 ```
 Kernel (main)
-  ├── replica: lawy     ← legal advisor, loaded with lawy brief
-  ├── replica: marty    ← marketing advisor, loaded with marty brief
-  └── replica: olly     ← technical advisor, loaded with project brief
+  ├── replica: researcher   ← loaded with research brief
+  ├── replica: analyst      ← loaded with analysis brief
+  └── replica: reporter     ← loaded with reporting brief
 ```
 
 Key properties:
@@ -189,10 +189,10 @@ Key properties:
 /replica stop <name>    → stop a named replica
 ```
 
-**Use case — client-facing meetings (NSA Agency):**
-Spawn `kernel-lawy` and `kernel-marty` loaded with a project brief before a client meeting. Each replica participates in the Telegram group chat with scoped knowledge only. After the meeting, stop replicas and run post-meeting reconciliation.
+**Use case — multi-agent pipelines:**
+Spawn multiple named replicas each loaded with a different brief or role. Each replica maintains its own conversation context while sharing the underlying model weights — enabling parallel specialist agents at minimal VRAM cost.
 
-See `workspace-client` repo and ADR-001 for the full architecture.
+
 
 ### Model Persistence
 
@@ -306,7 +306,7 @@ Set your private ecosystem repo:
 - New API: `/replica/<name>/message`, `/replica/<name>/status`, `DELETE /replica/<name>`
 - Updated `/replica/active` to include name, persistent flag
 - Telegram `/replica list` and `/replica stop <name>` commands
-- Brief file loaded into system prompt at spawn (scoped context for client meetings)
+- Brief file loaded into system prompt at spawn time
 - Isolated conversation history per replica (up to 20 turns)
 - Backward compat: existing `spawn(role, task)` unchanged
 - VRAM cap raised to 4 replicas
@@ -400,4 +400,4 @@ Set your private ecosystem repo:
 
 ✅ **Active development.** Running in production.  
 **Repo:** [fabiopacifici-bot/kernel](https://github.com/fabiopacifici-bot/kernel)  
-**Author:** Fabio (NSA Agency)
+
