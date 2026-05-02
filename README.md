@@ -5,7 +5,7 @@
 > Talks to you via Telegram, CLI, or API.  
 > Supports multimodal input: images and voice via Gemma 4.
 
-**Current stable: v0.7.0**
+**Current stable: v0.9.0**
 
 ---
 
@@ -56,6 +56,7 @@ Send `/help` to your bot — you'll get a menu with tappable inline buttons for 
 /install <n>  → install a skill or routine from the ecosystem
 /clone <path> → copy a skill from another agent
 /verbose      → toggle verbose mode (streams tool steps live)
+/replica      → manage named persistent replicas
 /update       → pull latest release and restart
 /restart      → restart without pulling (apply config changes)
 /rollback     → revert to the previous commit
@@ -86,6 +87,22 @@ curl -X POST http://localhost:8769/message -H 'Content-Type: application/json' \
 
 # Health check
 curl http://localhost:8769/health
+
+# Spawn a named persistent replica with brief injection
+curl -X POST http://localhost:8769/replica/named \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "lawy", "role": "custom", "brief_path": "~/.openclaw/workspace-client/projects/multistack/brief.md"}'
+
+# Send a message to a named replica
+curl -X POST http://localhost:8769/replica/lawy/message \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "What are the IP boundaries for this meeting?"}'
+
+# List active replicas
+curl http://localhost:8769/replica/active
+
+# Stop a named replica
+curl -X DELETE http://localhost:8769/replica/lawy
 ```
 
 ---
@@ -135,6 +152,47 @@ Telegram / CLI / API
 ```
 
 A single uvicorn process owns both the API server and the Telegram bot (bot runs as a daemon thread inside the startup event). `start.sh` kills port 8769 and relaunches the API — the model server is never restarted if it's already healthy.
+
+### Named Persistent Replicas
+
+Kernel supports spawning **named persistent replicas** — isolated agent instances that share the base model weights but each maintain their own conversation history and system prompt.
+
+```
+Kernel (main)
+  ├── replica: lawy     ← legal advisor, loaded with lawy brief
+  ├── replica: marty    ← marketing advisor, loaded with marty brief
+  └── replica: olly     ← technical advisor, loaded with project brief
+```
+
+Key properties:
+- **Shared VRAM** — all replicas use the same loaded model weights (no extra GPU memory per replica)
+- **Isolated context** — each replica has its own conversation history (up to 20 turns)
+- **Brief injection** — a brief file is loaded into the system prompt at spawn time
+- **Persistent** — stays alive until explicitly stopped (unlike fire-and-forget task replicas)
+- **VRAM cap** — max 4 replicas; each replica reserves ~512MB context budget
+
+**API endpoints:**
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/replica/named` | Spawn a named persistent replica |
+| `POST` | `/replica/<name>/message` | Send a message, get a reply |
+| `GET` | `/replica/<name>/status` | Check replica status and history length |
+| `DELETE` | `/replica/<name>` | Stop and remove a replica |
+| `GET` | `/replica/active` | List all active replicas |
+| `POST` | `/replica/spawn` | (legacy) Spawn a fire-and-forget task replica |
+
+**Telegram commands:**
+
+```
+/replica list           → show active replicas with status
+/replica stop <name>    → stop a named replica
+```
+
+**Use case — client-facing meetings (NSA Agency):**
+Spawn `kernel-lawy` and `kernel-marty` loaded with a project brief before a client meeting. Each replica participates in the Telegram group chat with scoped knowledge only. After the meeting, stop replicas and run post-meeting reconciliation.
+
+See `workspace-client` repo and ADR-001 for the full architecture.
 
 ### Model Persistence
 
@@ -242,6 +300,19 @@ Set your private ecosystem repo:
 ---
 
 ## Changelog
+
+### v0.9.0 — May 2, 2026
+- Named persistent replicas with brief injection (`spawn_named`, `/replica/named`)
+- New API: `/replica/<name>/message`, `/replica/<name>/status`, `DELETE /replica/<name>`
+- Updated `/replica/active` to include name, persistent flag
+- Telegram `/replica list` and `/replica stop <name>` commands
+- Brief file loaded into system prompt at spawn (scoped context for client meetings)
+- Isolated conversation history per replica (up to 20 turns)
+- Backward compat: existing `spawn(role, task)` unchanged
+- VRAM cap raised to 4 replicas
+
+### v0.8.2 — May 2, 2026
+- `run_skill` and `run_routine` as callable tools — Gemma can invoke any skill or routine natively
 
 ### v0.7.0 — May 1, 2026
 - Multimodal support: send images and voice notes to Kernel via Telegram
