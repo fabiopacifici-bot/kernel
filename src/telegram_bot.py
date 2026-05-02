@@ -40,6 +40,23 @@ _verbose_mode = False
 _memory: list = []
 
 
+def _call_api(method: str, path: str, body: dict = None):
+    """Internal helper to call Kernel's own API."""
+    try:
+        url = f"http://localhost:8769{path}"
+        if method == "GET":
+            r = requests.get(url, timeout=5)
+        elif method == "DELETE":
+            r = requests.delete(url, timeout=5)
+        elif method == "POST":
+            r = requests.post(url, json=body, timeout=5)
+        else:
+            return None
+        return r.json() if r.ok else None
+    except Exception:
+        return None
+
+
 def send_message(chat_id: str, text: str, parse_mode: str = "Markdown"):
     try:
         requests.post(
@@ -277,6 +294,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             [{"text": "📦 /packages", "callback_data": "/packages"}],
             [{"text": "📊 /status", "callback_data": "/status"}, {"text": "🔇 /verbose", "callback_data": "/verbose"}],
             [{"text": "🔍 /search ...", "callback_data": "/search "}, {"text": "📦 /install ...", "callback_data": "/install "}],
+            [{"text": "🤖 /replica list", "callback_data": "/replica list"}, {"text": "⏹ /replica stop", "callback_data": "/replica stop "}],
             [{"text": "🔄 /update", "callback_data": "/update"}, {"text": "🔁 /restart", "callback_data": "/restart"}],
             [{"text": "⏪ /rollback", "callback_data": "/rollback"}],
         ]
@@ -502,6 +520,33 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             send_message(chat_id, "🔍 Verbose mode ON — I'll show my reasoning.")
         else:
             send_message(chat_id, "🔇 Verbose mode OFF.")
+        return
+
+    if text.startswith("/replica"):
+        parts = text.split(None, 2)
+        sub = parts[1] if len(parts) > 1 else "list"
+
+        if sub == "list":
+            active = _call_api("GET", "/replica/active") or []
+            if not active:
+                send_message(chat_id, "No active replicas.")
+            else:
+                lines = ["*Active replicas:*"]
+                for r in active:
+                    status = "💬 persistent" if r.get("persistent") else ("✅ done" if r.get("done") else "⚙️ running")
+                    lines.append(f"• `{r['name']}` ({r['role']}) — {status}")
+                send_message(chat_id, "\n".join(lines))
+
+        elif sub == "stop" and len(parts) > 2:
+            name = parts[2].strip()
+            result = _call_api("DELETE", f"/replica/{name}")
+            if result and result.get("status") == "stopped":
+                send_message(chat_id, f"✅ Replica `{name}` stopped.")
+            else:
+                send_message(chat_id, f"❌ Could not stop `{name}`.")
+
+        else:
+            send_message(chat_id, "Usage:\n`/replica list` — show active replicas\n`/replica stop <name>` — stop a named replica")
         return
 
     if text.startswith("/run "):
