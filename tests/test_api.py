@@ -266,3 +266,72 @@ class TestMessageInference:
         r = _post("/message", {"message": "What is 2 + 2?"}, timeout=120)
         assert r.status_code == 200
         assert isinstance(r.json()["reply"], str)
+
+
+# ---------------------------------------------------------------------------
+# Named persistent replicas
+# ---------------------------------------------------------------------------
+
+class TestNamedReplicas:
+    def test_spawn_named_replica(self):
+        resp = _post("/replica/named", {
+            "name": "test-lawy",
+            "role": "custom",
+            "custom_prompt": "You are a legal advisor."
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "spawned"
+        assert data["name"] == "test-lawy"
+        assert data["persistent"] is True
+
+    def test_spawn_named_replica_idempotent(self):
+        """Spawning the same name twice returns the existing replica."""
+        _post("/replica/named", {"name": "test-idem", "custom_prompt": "You are a test."})
+        resp = _post("/replica/named", {"name": "test-idem", "custom_prompt": "Different prompt."})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "spawned"
+
+    def test_replica_status(self):
+        _post("/replica/named", {"name": "test-status-check", "custom_prompt": "You are a test replica."})
+        resp = _get("/replica/test-status-check/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "test-status-check"
+        assert data["persistent"] is True
+        assert "history_turns" in data
+
+    def test_replica_status_not_found(self):
+        resp = _get("/replica/nonexistent-xyz-404/status")
+        assert resp.status_code == 404
+
+    def test_stop_named_replica(self):
+        _post("/replica/named", {"name": "test-olly", "custom_prompt": "You are a tech advisor."})
+        resp = _delete("/replica/test-olly")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "stopped"
+
+    def test_stop_nonexistent_replica(self):
+        resp = _delete("/replica/does-not-exist-xyz")
+        assert resp.status_code == 404
+
+    def test_active_replicas_shows_name_and_persistent(self):
+        _post("/replica/named", {"name": "test-active-check", "custom_prompt": "You are a test."})
+        resp = _get("/replica/active")
+        assert resp.status_code == 200
+        replicas = resp.json()
+        assert isinstance(replicas, list)
+        for r in replicas:
+            assert "name" in r
+            assert "persistent" in r
+
+    @pytest.mark.inference
+    def test_message_named_replica(self):
+        _post("/replica/named", {"name": "test-marty", "custom_prompt": "You are a marketing advisor."})
+        resp = _post("/replica/test-marty/message", {"message": "What is the Multistack course?"})
+        assert resp.status_code == 200
+        assert "reply" in resp.json()
+
+
+def _delete(path, timeout=TIMEOUT):
+    return requests.delete(f"{BASE_URL}{path}", timeout=timeout)

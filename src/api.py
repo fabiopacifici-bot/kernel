@@ -3,7 +3,9 @@ api.py — FastAPI server. Local + mesh endpoints.
 Port 8769 by default.
 """
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from typing import Optional
 import yaml, agent, replica as rep, model as mdl
 import bootstrap as _bootstrap
 import os, json, time, uuid
@@ -43,6 +45,16 @@ class MessageIn(BaseModel):
 class TaskIn(BaseModel):
     role: str
     task: str
+
+class NamedReplicaIn(BaseModel):
+    name: str
+    role: str = "custom"
+    brief_path: Optional[str] = None
+    custom_prompt: Optional[str] = None
+    workspace: Optional[str] = None
+
+class ReplicaMessageIn(BaseModel):
+    message: str
 
 
 @app.on_event("startup")
@@ -120,12 +132,63 @@ def spawn_replica(body: TaskIn):
     r = rep.spawn(body.role, body.task)
     if r is None:
         return {"status": "rejected", "reason": "VRAM limit or replica cap reached"}
-    return {"status": "spawned", "role": r.role}
+    return {"status": "spawned", "role": r.role, "name": r.name}
 
 
 @app.get("/replica/active")
 def active_replicas():
-    return [{"role": r.role, "task": r.task[:80], "done": r.done} for r in rep.active()]
+    return [{"name": r.name, "role": r.role, "task": r.task[:80], "done": r.done, "persistent": r.persistent} for r in rep.active()]
+
+
+@app.post("/replica/named")
+def spawn_named_replica(body: NamedReplicaIn):
+    """Spawn a named persistent replica with optional brief injection."""
+    r = rep.spawn_named(
+        name=body.name,
+        role=body.role,
+        brief_path=body.brief_path,
+        custom_prompt=body.custom_prompt,
+        workspace=body.workspace,
+    )
+    if r is None:
+        return {"status": "rejected", "reason": "VRAM limit or replica cap reached"}
+    return {"status": "spawned", "name": r.name, "role": r.role, "persistent": r.persistent}
+
+
+@app.post("/replica/{name}/message")
+def message_replica(name: str, body: ReplicaMessageIn):
+    """Send a message to a named persistent replica."""
+    r = rep.get(name)
+    if r is None:
+        return JSONResponse({"error": f"Replica '{name}' not found"}, status_code=404)
+    if not r.persistent:
+        return JSONResponse({"error": "Replica is not in persistent mode"}, status_code=400)
+    reply = r.message(body.message)
+    return {"name": name, "reply": reply}
+
+
+@app.delete("/replica/{name}")
+def stop_replica(name: str):
+    """Stop and remove a named replica."""
+    if rep.stop(name):
+        return {"status": "stopped", "name": name}
+    return JSONResponse({"error": f"Replica '{name}' not found"}, status_code=404)
+
+
+@app.get("/replica/{name}/status")
+def replica_status(name: str):
+    """Get status of a named replica."""
+    r = rep.get(name)
+    if r is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {
+        "name": r.name,
+        "role": r.role,
+        "persistent": r.persistent,
+        "done": r.done,
+        "brief_path": r.brief_path,
+        "history_turns": len(r.history),
+    }
 
 
 @app.get("/system")
