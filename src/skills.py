@@ -71,7 +71,27 @@ def run(skill: dict, user_input: str, infer_fn) -> str:
         cmd = exec_template.replace("{args}", args).replace("{input}", user_input)
         skill_dir = str(Path(skill["path"]).parent)
         env = os.environ.copy()
-        # Load skill .env if present
+        # Always inject KERNEL_SRC so scripts can find model_client
+        env["KERNEL_SRC"] = str(Path(__file__).parent)
+        # Load Kernel's own .env first (Telegram creds etc.)
+        kernel_env = Path(skill["path"]).parent
+        for _ in range(5):  # walk up max 5 levels looking for kernel .env
+            kernel_env = kernel_env.parent
+            candidate = kernel_env / ".env"
+            if candidate.exists() and "MICROCLAW_TELEGRAM" in candidate.read_text():
+                for line in candidate.read_text().splitlines():
+                    if "=" in line and not line.startswith("#"):
+                        k, v = line.split("=", 1)
+                        env.setdefault(k.strip(), v.strip())  # don't override existing
+                break
+        # Also load well-known Kernel .env path directly
+        kernel_default_env = Path("/home/pacificDev/.openclaw/workspace/repositories/kernel/.env")
+        if kernel_default_env.exists():
+            for line in kernel_default_env.read_text().splitlines():
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    env.setdefault(k.strip(), v.strip())
+        # Load skill .env if present (can override kernel env)
         env_path = Path(skill_dir) / ".env"
         if env_path.exists():
             for line in env_path.read_text().splitlines():
