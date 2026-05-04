@@ -90,29 +90,14 @@ def health():
 @app.post("/message")
 def message(body: MessageIn):
     """Main entry point — triage and respond."""
-    # Route slash commands through the same handler as Telegram bot
     text = body.message.strip()
     if not text:
         return {"reply": ""}
-    if text.startswith("/"):
-        import telegram_bot as _tb
-        import io, contextlib
-        # Capture send_message calls and return them as reply
-        _replies = []
-        _orig_send = _tb.send_message
-        def _capture(chat_id, text, **kwargs):
-            _replies.append(text)
-        _tb.send_message = _capture
-        try:
-            _tb.handle_message(_tb.ALLOWED_CHAT_ID or "api", text)
-        finally:
-            _tb.send_message = _orig_send
-        result = "\n".join(_replies) if _replies else ""
-        _log_interaction(text, result, source="api-slash")
-        if _replies:
-            return {"reply": result}
-    reply = agent.triage(body.message)
-    _log_interaction(body.message, reply, source="api")
+
+    # Always route through agent.triage() — handles skills (incl. exec dispatch),
+    # routines, and falls back to LLM. Slash commands are handled inside triage.
+    reply = agent.triage(text)
+    _log_interaction(text, reply, source="api")
     return {"reply": reply}
 
 
