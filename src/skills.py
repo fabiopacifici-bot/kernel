@@ -23,6 +23,7 @@ def _parse_skill(path: Path) -> dict | None:
         "commands": fm.get("commands", fm.get("metadata", {}).get("commands", [])),
         "instructions": m.group(2).strip(),
         "path": str(path),
+        "exec": fm.get("exec", None),  # direct script dispatch, bypasses LLM
     }
 
 
@@ -50,8 +51,45 @@ def find(name: str, skills: list[dict]) -> dict | None:
 
 def run(skill: dict, user_input: str, infer_fn) -> str:
     """Execute a skill using native function-calling when model is loaded."""
+    import subprocess
     from model import infer_with_tools, _model
     from tools import TOOLS
+
+    # --- Direct exec dispatch (script-backed skills, no LLM) ---
+    exec_template = skill.get("exec", None)
+    if exec_template:
+        # Substitute {args} with everything after the command trigger
+        # e.g. "/markdown /path/to/file.pdf" → args = "/path/to/file.pdf"
+        import shlex
+        args = user_input.strip()
+        # Strip leading slash-command word if present
+        parts = args.split(None, 1)
+        if len(parts) > 1 and parts[0].startswith("/"):
+            args = parts[1]
+        elif len(parts) == 1 and parts[0].startswith("/"):
+            args = ""
+        cmd = exec_template.replace("{args}", args).replace("{input}", user_input)
+        skill_dir = str(Path(skill["path"]).parent)
+        env = os.environ.copy()
+        # Load skill .env if present
+        env_path = Path(skill_dir) / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip()
+        print(f"[skills] Direct exec: {cmd}")
+        try:
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True,
+                timeout=300, env=env, cwd=skill_dir
+            )
+            output = (result.stdout + result.stderr).strip()
+            return output if output else "✅ Done."
+        except subprocess.TimeoutExpired:
+            return "❌ Script timed out after 300s."
+        except Exception as e:
+            return f"❌ Exec error: {e}"
 
     instructions = skill.get("instructions", "")
     name = skill.get("name", "skill")
