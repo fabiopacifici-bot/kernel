@@ -57,9 +57,10 @@ def _call_api(method: str, path: str, body: dict = None):
         return None
 
 
-def send_message(chat_id: str, text: str, parse_mode: str = "Markdown"):
+def send_message(chat_id: str, text: str, parse_mode: str = "Markdown") -> int | None:
+    """Send a message and return its message_id (or None on failure)."""
     try:
-        requests.post(
+        r = requests.post(
             f"{API_BASE}/sendMessage",
             json={
                 "chat_id": chat_id,
@@ -68,8 +69,31 @@ def send_message(chat_id: str, text: str, parse_mode: str = "Markdown"):
             },
             timeout=10,
         )
+        data = r.json()
+        if data.get("ok"):
+            return data["result"]["message_id"]
     except Exception as e:
         print(f"[bot] send error: {e}")
+    return None
+
+
+def edit_message(chat_id: str, message_id: int, text: str, parse_mode: str = "Markdown") -> bool:
+    """Edit an existing message. Falls back silently if it fails."""
+    try:
+        r = requests.post(
+            f"{API_BASE}/editMessageText",
+            json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "parse_mode": parse_mode,
+            },
+            timeout=10,
+        )
+        return r.json().get("ok", False)
+    except Exception as e:
+        print(f"[bot] edit error: {e}")
+    return False
 
 
 def send_buttons(chat_id: str, text: str, buttons: list):
@@ -671,11 +695,15 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         cmd_word = text.split()[0].lower()
         if cmd_word not in _BUILTIN_COMMANDS:
             _ensure_agent()
+            # Immediate acknowledgement — exec commands (e.g. /markdown) can take minutes
+            working_id = send_message(chat_id, f"🦞 Running `{cmd_word}`\u2026")
             import agent as _a
             result = _a.triage(text)
             if result:
-                send_message(chat_id, f"🦞 {result[:3800]}")
-                return
+                reply_text = f"🦞 {result[:3800]}"
+                if working_id and not edit_message(chat_id, working_id, reply_text):
+                    send_message(chat_id, reply_text)
+            return
 
     if not _agent_ready:
         send_message(chat_id, "⏳ Loading model (~60s)...")
@@ -709,9 +737,15 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
     if memory_results:
         system_prompt = f"Relevant memory:\n{memory_results}\n\n{system_prompt}"
 
+    # Send immediate acknowledgement so user knows Kernel is working
+    working_id = send_message(chat_id, "🦞 Thinking\u2026")
+
     try:
+
         if _verbose_mode:
-            # Verbose path — route through agent.triage() with step callback
+            # Verbose path — replace "Thinking…" with first step indicator, then stream steps
+            if working_id:
+                edit_message(chat_id, working_id, "🔍 *Verbose mode* — showing steps\u2026")
             import agent as _agent_mod
             step_num = [0]
 
@@ -747,10 +781,15 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             if len(reply) > 100:
                 _write_collective_memory(text, reply)
 
-        send_message(chat_id, f"🦞 {reply}")
+        # Edit the "Thinking…" placeholder with the actual reply
+        reply_text = f"🦞 {reply}"
+        if working_id and not edit_message(chat_id, working_id, reply_text):
+            send_message(chat_id, reply_text)
     except Exception as e:
         print(f"[bot] ERROR in infer: {e}", flush=True)
-        send_message(chat_id, f"🦞 Error: {str(e)[:200]}")
+        err_text = f"🦞 Error: {str(e)[:200]}"
+        if working_id and not edit_message(chat_id, working_id, err_text):
+            send_message(chat_id, err_text)
 
 
 # ---------------------------------------------------------------------------
