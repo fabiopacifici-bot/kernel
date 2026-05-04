@@ -26,9 +26,17 @@ def _parse_skill(path: Path) -> dict | None:
     }
 
 
+def _rglob_follow(base: Path, filename: str):
+    """rglob that follows symlinks (Path.rglob doesn't in Python 3.12+)."""
+    import os
+    for root, dirs, files in os.walk(str(base), followlinks=True):
+        if filename in files:
+            yield Path(root) / filename
+
+
 def load_all(skills_dir="./skills") -> list[dict]:
     skills = []
-    for skill_md in Path(skills_dir).rglob("SKILL.md"):
+    for skill_md in _rglob_follow(Path(skills_dir), "SKILL.md"):
         s = _parse_skill(skill_md)
         if s:
             skills.append(s)
