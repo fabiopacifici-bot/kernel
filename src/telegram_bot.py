@@ -701,8 +701,10 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             result = _a.triage(text)
             if result:
                 reply_text = f"🦞 {result[:3800]}"
-                if working_id and not edit_message(chat_id, working_id, reply_text):
-                    send_message(chat_id, reply_text)
+                # Always send as new message for exec commands (output can be long/multiline)
+                if working_id:
+                    edit_message(chat_id, working_id, f"🦞 `{cmd_word}` complete ✅")
+                send_message(chat_id, reply_text, parse_mode="")
             return
 
     if not _agent_ready:
