@@ -30,6 +30,7 @@ SOCKET_PATH = "/tmp/kernel_model.sock"
 _model = None
 _processor = None
 _config = None
+_lazy_config_path = "config.yaml"  # set at startup, used by lazy load in handlers
 
 
 def _load_config(path="config.yaml"):
@@ -37,6 +38,12 @@ def _load_config(path="config.yaml"):
     with open(path) as f:
         _config = yaml.safe_load(f)
     return _config
+
+
+def _ensure_model():
+    """Called by inference handlers — loads model lazily if not yet loaded."""
+    if _model is None:
+        _load_model(_lazy_config_path)
 
 
 def _load_model(config_path="config.yaml"):
@@ -86,6 +93,7 @@ def _load_model(config_path="config.yaml"):
 
 def _handle_infer(params: dict) -> dict:
     """Standard chat inference."""
+    _ensure_model()
     import torch
 
     messages = params.get("messages", [])
@@ -128,6 +136,7 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
     Streams intermediate steps back as {"type": "step", ...} lines,
     then returns final {"type": "result", "result": "..."}.
     """
+    _ensure_model()
     import json
     import torch
     from tools import execute_tool
@@ -202,6 +211,7 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
 
 def _handle_infer_with_image(params: dict) -> dict:
     """Multimodal image inference."""
+    _ensure_model()
     import torch
     from PIL import Image
 
@@ -229,6 +239,7 @@ def _handle_infer_with_image(params: dict) -> dict:
 
 def _handle_infer_with_audio(params: dict) -> dict:
     """Multimodal audio inference."""
+    _ensure_model()
     import torch
     import soundfile as sf
     import numpy as np
@@ -369,6 +380,7 @@ def main():
     parser = argparse.ArgumentParser(description="Kernel model server")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--socket", default=None, help="Override socket path")
+    parser.add_argument("--lazy", action="store_true", help="Defer model load to first inference request (reduces boot RAM)")
     args = parser.parse_args()
 
     socket_path = args.socket or SOCKET_PATH
@@ -395,8 +407,12 @@ def main():
             print(f"[model_server] Removing stale socket {socket_path}", flush=True)
             os.unlink(socket_path)
 
-    # Load model
-    _load_model(args.config)
+    # Load model — eager by default, deferred if --lazy
+    _lazy_config_path = args.config
+    if args.lazy:
+        print(f"[model_server] Lazy mode: model will load on first inference request.", flush=True)
+    else:
+        _load_model(args.config)
 
     # Signal handlers for clean shutdown
     server = None

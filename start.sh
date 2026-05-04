@@ -51,7 +51,7 @@ else
     # Remove stale socket if present
     rm -f "$SOCKET_PATH"
 
-    nohup python3 "$REPO/src/model_server.py" --config "$REPO/config.yaml" \
+    nohup python3 "$REPO/src/model_server.py" --config "$REPO/config.yaml" --lazy \
         >> "$MODEL_SERVER_LOG" 2>&1 &
     MODEL_SERVER_PID=$!
     echo "[kernel] Model server PID: $MODEL_SERVER_PID"
