@@ -408,7 +408,8 @@ def main():
             os.unlink(socket_path)
 
     # Load model — eager by default, deferred if --lazy
-    _lazy_config_path = args.config
+    global _lazy_config_path
+    _lazy_config_path = os.path.abspath(args.config)  # absolute path — safe regardless of cwd
     if args.lazy:
         print(f"[model_server] Lazy mode: model will load on first inference request.", flush=True)
     else:
