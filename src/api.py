@@ -94,8 +94,31 @@ def message(body: MessageIn):
     if not text:
         return {"reply": ""}
 
-    # Always route through agent.triage() — handles skills (incl. exec dispatch),
-    # routines, and falls back to LLM. Slash commands are handled inside triage.
+    # Built-in slash commands go through telegram_bot handler (captures send_message calls)
+    _BUILTIN_COMMANDS = {
+        "/start", "/help", "/skills", "/routines", "/run", "/skill",
+        "/status", "/verbose", "/packages", "/search", "/install",
+        "/clone", "/private_repo", "/update", "/restart", "/rollback",
+        "/replica", "/workspaces", "/system", "/version",
+    }
+    cmd_word = text.split()[0].lower() if text.startswith("/") else ""
+    if cmd_word and cmd_word in _BUILTIN_COMMANDS:
+        import telegram_bot as _tb
+        _replies = []
+        _orig_send = _tb.send_message
+        def _capture(chat_id, msg, **kwargs):
+            _replies.append(msg)
+        _tb.send_message = _capture
+        try:
+            _tb.handle_message(_tb.ALLOWED_CHAT_ID or "api", text)
+        finally:
+            _tb.send_message = _orig_send
+        result = "\n".join(_replies) if _replies else ""
+        _log_interaction(text, result, source="api-slash")
+        return {"reply": result}
+
+    # Everything else (free text + unknown slash commands) through agent.triage()
+    # This includes exec-backed skill commands like /markdown, /anonymize
     reply = agent.triage(text)
     _log_interaction(text, reply, source="api")
     return {"reply": reply}
