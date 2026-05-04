@@ -125,6 +125,39 @@ def send_typing(chat_id: str):
         pass
 
 
+class TypingKeepAlive:
+    """
+    Context manager that pulses the Telegram typing indicator every 4s
+    until the block completes. Telegram's typing indicator expires after ~5s
+    so a single send_typing call goes dark on long inference or exec tasks.
+
+    Usage:
+        with TypingKeepAlive(chat_id):
+            result = long_running_call()
+    """
+    def __init__(self, chat_id: str, interval: float = 4.0):
+        self._chat_id = chat_id
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _pulse(self):
+        while not self._stop.wait(self._interval):
+            send_typing(self._chat_id)
+
+    def __enter__(self):
+        send_typing(self._chat_id)          # immediate first pulse
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._pulse, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+
+
 def download_file(file_id: str) -> "str | None":
     """Download a Telegram file by file_id. Returns local temp path or None."""
     import tempfile, os
@@ -695,13 +728,13 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         cmd_word = text.split()[0].lower()
         if cmd_word not in _BUILTIN_COMMANDS:
             _ensure_agent()
-            # Immediate acknowledgement — exec commands (e.g. /markdown) can take minutes
+            # Immediate ack + keep typing indicator alive during long exec (e.g. /markdown)
             working_id = send_message(chat_id, f"🦞 Running `{cmd_word}`\u2026")
             import agent as _a
-            result = _a.triage(text)
+            with TypingKeepAlive(chat_id):
+                result = _a.triage(text)
             if result:
                 reply_text = f"🦞 {result[:3800]}"
-                # Always send as new message for exec commands (output can be long/multiline)
                 if working_id:
                     edit_message(chat_id, working_id, f"🦞 `{cmd_word}` complete ✅")
                 send_message(chat_id, reply_text, parse_mode="")
@@ -739,49 +772,49 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
     if memory_results:
         system_prompt = f"Relevant memory:\n{memory_results}\n\n{system_prompt}"
 
-    # Send immediate acknowledgement so user knows Kernel is working
+    # Send immediate acknowledgement + keep typing alive during inference
     working_id = send_message(chat_id, "🦞 Thinking\u2026")
 
     try:
+        with TypingKeepAlive(chat_id):
+            if _verbose_mode:
+                # Verbose path — replace "Thinking…" with first step indicator, then stream steps
+                if working_id:
+                    edit_message(chat_id, working_id, "🔍 *Verbose mode* — showing steps\u2026")
+                import agent as _agent_mod
+                step_num = [0]
 
-        if _verbose_mode:
-            # Verbose path — replace "Thinking…" with first step indicator, then stream steps
-            if working_id:
-                edit_message(chat_id, working_id, "🔍 *Verbose mode* — showing steps\u2026")
-            import agent as _agent_mod
-            step_num = [0]
+                def _step_cb(n, tool_name, args, result):
+                    step_num[0] = n
+                    args_str = str(args)[:100]
+                    result_str = str(result)[:200]
+                    send_message(
+                        chat_id,
+                        f"🔍 *Step {n}* — `{tool_name}`\n▸ `{args_str}`\n↳ {result_str}",
+                    )
 
-            def _step_cb(n, tool_name, args, result):
-                step_num[0] = n
-                args_str = str(args)[:100]
-                result_str = str(result)[:200]
-                send_message(
-                    chat_id,
-                    f"🔍 *Step {n}* — `{tool_name}`\n▸ `{args_str}`\n↳ {result_str}",
+                reply = _agent_mod.triage(text, step_callback=_step_cb)
+                if step_num[0] > 0:
+                    send_message(
+                        chat_id,
+                        f"✅ *Done* ({step_num[0]} step{'s' if step_num[0] != 1 else ''})",
+                    )
+            else:
+                # Normal path — plain infer with memory context
+                history = _memory_mod.load()
+                messages = (
+                    [{"role": "system", "content": system_prompt}]
+                    + history
+                    + [{"role": "user", "content": text}]
                 )
-
-            reply = _agent_mod.triage(text, step_callback=_step_cb)
-            if step_num[0] > 0:
-                send_message(
-                    chat_id,
-                    f"✅ *Done* ({step_num[0]} step{'s' if step_num[0] != 1 else ''})",
-                )
-        else:
-            # Normal path — plain infer with memory context
-            history = _memory_mod.load()
-            messages = (
-                [{"role": "system", "content": system_prompt}]
-                + history
-                + [{"role": "user", "content": text}]
-            )
-            reply = infer(messages, max_new_tokens=512)
-            # Persist user + assistant turn
-            history.append({"role": "user", "content": text})
-            history.append({"role": "assistant", "content": reply})
-            _memory_mod.save(history)
-            # Write collective memory entry for substantive replies
-            if len(reply) > 100:
-                _write_collective_memory(text, reply)
+                reply = infer(messages, max_new_tokens=512)
+                # Persist user + assistant turn
+                history.append({"role": "user", "content": text})
+                history.append({"role": "assistant", "content": reply})
+                _memory_mod.save(history)
+                # Write collective memory entry for substantive replies
+                if len(reply) > 100:
+                    _write_collective_memory(text, reply)
 
         # Edit the "Thinking…" placeholder with the actual reply
         reply_text = f"🦞 {reply}"
