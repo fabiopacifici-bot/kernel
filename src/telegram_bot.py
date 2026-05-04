@@ -658,15 +658,24 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         return
 
     # Regular chat — route to agent
-    # For slash commands that weren't handled above, try agent.triage() first
-    # so skills with exec dispatch (e.g. /markdown) run deterministically.
+    # For unrecognised slash commands, try agent.triage() first
+    # so skills with exec dispatch (e.g. /markdown, /anonymize) run deterministically.
+    # Known built-in commands are already handled above — only forward unknowns.
+    _BUILTIN_COMMANDS = {
+        "/start", "/help", "/skills", "/routines", "/run", "/skill",
+        "/status", "/verbose", "/packages", "/search", "/install",
+        "/clone", "/private_repo", "/update", "/restart", "/rollback",
+        "/replica", "/workspaces", "/system", "/version",
+    }
     if text.startswith("/"):
-        _ensure_agent()
-        import agent as _a
-        result = _a.triage(text)
-        if result:
-            send_message(chat_id, f"🦞 {result[:3800]}")
-            return
+        cmd_word = text.split()[0].lower()
+        if cmd_word not in _BUILTIN_COMMANDS:
+            _ensure_agent()
+            import agent as _a
+            result = _a.triage(text)
+            if result:
+                send_message(chat_id, f"🦞 {result[:3800]}")
+                return
 
     if not _agent_ready:
         send_message(chat_id, "⏳ Loading model (~60s)...")
