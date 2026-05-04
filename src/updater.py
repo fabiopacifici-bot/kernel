@@ -78,10 +78,10 @@ def do_update(
         notify(f"✅ Already on latest version (v{current}). Nothing to update.")
         return False
 
-    notify(f"🔄 Updating v{current} → v{latest}... pulling master")
+    notify(f"🔄 Updating v{current} → v{latest}... pulling main")
 
     pull = subprocess.run(
-        ["git", "pull", "origin", "master"],
+        ["git", "pull", "origin", "main"],
         cwd=REPO_DIR,
         capture_output=True,
         text=True,
