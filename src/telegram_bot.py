@@ -125,6 +125,22 @@ def send_typing(chat_id: str):
         pass
 
 
+def send_file(chat_id: str, file_path: str, caption: str = "") -> bool:
+    """Send a local file as a Telegram document attachment."""
+    try:
+        with open(file_path, "rb") as _f:
+            r = requests.post(
+                f"{API_BASE}/sendDocument",
+                data={"chat_id": chat_id, "caption": caption},
+                files={"document": (os.path.basename(file_path), _f)},
+                timeout=30,
+            )
+        return r.ok
+    except Exception as e:
+        print(f"[bot] send_file error: {e}")
+        return False
+
+
 class TypingKeepAlive:
     """
     Context manager that pulses the Telegram typing indicator every 4s
@@ -355,6 +371,8 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             [{"text": "👥 /replica clone", "callback_data": "/replica clone"}, {"text": "⏹ /replica stop", "callback_data": "/replica stop "}],
             [{"text": "🔄 /update", "callback_data": "/update"}, {"text": "🔁 /restart", "callback_data": "/restart"}],
             [{"text": "⏪ /rollback", "callback_data": "/rollback"}],
+            [{"text": "🧬 /evolve", "callback_data": "/evolve"}, {"text": "📊 /evolve status", "callback_data": "/evolve status"}],
+            [{"text": "📈 /evolve dash", "callback_data": "/evolve dash"}],
         ]
         send_buttons(chat_id, intro, buttons)
         return
@@ -715,7 +733,169 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         return
 
     # Regular chat — route to agent
-    # For unrecognised slash commands, try agent.triage() first
+    # ── Evolution commands (ADR-004) — bridge to kernel-evolving sandbox on port 8779 ──
+
+    EVOLUTION_SANDBOX = os.environ.get("EVOLUTION_SANDBOX_URL", "http://localhost:8779")
+
+    def _evo_api(method: str, path: str, body: dict = None):
+        """Call the kernel-evolving sandbox API."""
+        try:
+            url = f"{EVOLUTION_SANDBOX}{path}"
+            if method == "GET":
+                r = requests.get(url, timeout=10)
+            elif method == "POST":
+                r = requests.post(url, json=body or {}, timeout=30)
+            else:
+                return None
+            return r.json() if r.ok else None
+        except Exception as e:
+            print(f"[evolve] API error: {e}")
+            return None
+
+    if text.startswith("/evolve"):
+        parts = text.split(maxsplit=1)
+        sub = parts[1].strip() if len(parts) > 1 else ""
+
+        # /evolve — menu + state overview
+        if sub in ("", "menu"):
+            state = _evo_api("GET", "/evolution/state") or {}
+            status_icon = {"running": "🟢", "paused": "⏸", "stopped": "🔴"}.get(state.get("state", ""), "❓")
+            msg = (
+                f"🧬 *Kernel Evolution* {status_icon}\n"
+                f"State: `{state.get('state', 'unknown')}`  "
+                f"Iter: `{state.get('iterations', 0)}/{state.get('cap', '?')}`\n"
+                "Use the buttons below to control the evolution sandbox."
+            )
+            buttons = [
+                [{"text": "📊 Status", "callback_data": "/evolve status"}, {"text": "📈 Dashboard", "callback_data": "/evolve dash"}],
+                [{"text": "▶ Start", "callback_data": "/evolve control start"}, {"text": "⏸ Pause", "callback_data": "/evolve control pause"}],
+                [{"text": "▶▶ Resume", "callback_data": "/evolve control resume"}, {"text": "⏹ Stop", "callback_data": "/evolve control stop"}],
+                [{"text": "🔄 Reset", "callback_data": "/evolve control reset"}],
+                [{"text": "🎯 Send Task", "callback_data": "/evolve task "}],
+            ]
+            send_buttons(chat_id, msg, buttons)
+            return
+
+        # /evolve status — full state + history
+        if sub == "status":
+            state = _evo_api("GET", "/evolution/state") or {}
+            history = _evo_api("GET", "/evolution") or {}
+            status_icon = {"running": "🟢", "paused": "⏸", "stopped": "🔴"}.get(state.get("state", ""), "❓")
+            gaps = history.get("gaps", [])
+            installed = history.get("installed_skills", [])
+            recent = (history.get("cycles") or history.get("history") or [])[-5:]
+            lines = [
+                f"🧬 *Evolution Status* {status_icon}",
+                f"State: `{state.get('state', 'unknown')}` · Iter: `{state.get('iterations', 0)}/{state.get('cap', '?')}` · Remaining: `{state.get('remaining', '?')}`",
+                f"Skills installed: `{len(installed)}`  Open gaps: `{len(gaps)}`",
+            ]
+            if installed:
+                lines.append("\n📦 *Last installed:* " + ", ".join(f"`{s}`" for s in installed[-5:]))
+            if gaps:
+                lines.append("\n❓ *Recent gaps:* " + "; ".join(str(g) for g in gaps[-3:]))
+            if recent:
+                lines.append("\n🔁 *Recent cycles:*")
+                for c in recent:
+                    lines.append(f"  • {c.get('task', '?')} → {c.get('outcome', c.get('resolved', '?'))}")
+            send_message(chat_id, "\n".join(lines))
+            return
+
+        # /evolve dash — fetch live dashboard from sandbox and send as file
+        if sub == "dash":
+            working_id = send_message(chat_id, "📈 Fetching evolution dashboard…")
+            dash_url = f"{EVOLUTION_SANDBOX}/evolution/dashboard"
+            try:
+                import urllib.request
+                import tempfile
+                resp = urllib.request.urlopen(dash_url, timeout=10)
+                html_bytes = resp.read()
+                tmp_path = os.path.join(tempfile.gettempdir(), "kernel_evolution_dashboard.html")
+                with open(tmp_path, "wb") as _fh:
+                    _fh.write(html_bytes)
+                if working_id:
+                    edit_message(chat_id, working_id, "📈 Dashboard ready — sending…")
+                send_file(chat_id, tmp_path, caption="🧬 Kernel Evolution Dashboard")
+                os.unlink(tmp_path)
+            except Exception as e:
+                err = f"❌ Dashboard error: {str(e)[:200]}"
+                if working_id:
+                    edit_message(chat_id, working_id, err)
+                else:
+                    send_message(chat_id, err)
+            return
+
+        # /evolve control <action> [cap=N]
+        if sub.startswith("control"):
+            ctrl_parts = sub.split()
+            action = ctrl_parts[1] if len(ctrl_parts) > 1 else ""
+            cap_val = None
+            for p in ctrl_parts[2:]:
+                if p.startswith("cap="):
+                    try:
+                        cap_val = int(p.split("=", 1)[1])
+                    except ValueError:
+                        pass
+            valid_actions = {"start", "pause", "resume", "stop", "reset"}
+            if action not in valid_actions:
+                send_message(chat_id, "Usage: `/evolve control <action> [cap=N]`\nActions: start, pause, resume, stop, reset")
+                return
+            body = {"action": action}
+            if cap_val is not None:
+                body["cap"] = cap_val
+            result = _evo_api("POST", "/evolution/control", body)
+            if result:
+                status_icon = {"running": "🟢", "paused": "⏸", "stopped": "🔴"}.get(result.get("state", ""), "❓")
+                send_message(
+                    chat_id,
+                    f"✅ Evolution `{action}` applied\n"
+                    f"State: {status_icon} `{result.get('state')}` · "
+                    f"Iter: `{result.get('iterations', 0)}/{result.get('cap', '?')}`"
+                )
+            else:
+                send_message(chat_id, f"❌ Evolution control failed — is the sandbox running on {EVOLUTION_SANDBOX}?")
+            return
+
+        # /evolve task <description> — manually trigger one evolution cycle
+        if sub.startswith("task"):
+            task_desc = sub[4:].strip().lstrip()
+            if not task_desc:
+                send_message(chat_id, "Usage: `/evolve task <description>`\nExample: `/evolve task analyse sentiment of customer feedback`")
+                return
+            working_id = send_message(chat_id, f"🧬 Triggering evolution for: _{task_desc}_…")
+            result = _evo_api("POST", "/evolution/trigger", {"task": task_desc})
+            if result:
+                outcome = result.get("outcome", "unknown")
+                skill = result.get("skill_installed")
+                confidence = result.get("confidence")
+                lines = ["🧬 *Evolution cycle complete*", f"Task: `{task_desc}`", f"Outcome: `{outcome}`"]
+                if skill:
+                    lines.append(f"📦 Skill installed: `{skill}`")
+                if confidence is not None:
+                    lines.append(f"🎯 Confidence: `{confidence}`")
+                if working_id:
+                    edit_message(chat_id, working_id, "🧬 Cycle done")
+                send_message(chat_id, "\n".join(lines))
+            else:
+                err = f"❌ Evolution trigger failed — sandbox at {EVOLUTION_SANDBOX} unreachable or not started."
+                if working_id:
+                    edit_message(chat_id, working_id, err)
+                else:
+                    send_message(chat_id, err)
+            return
+
+        # Unknown /evolve subcommand
+        send_message(
+            chat_id,
+            "🧬 *Evolution commands:*\n"
+            "`/evolve` — menu + current state\n"
+            "`/evolve status` — full status + history\n"
+            "`/evolve dash` — send live dashboard HTML\n"
+            "`/evolve control start|pause|resume|stop|reset [cap=N]`\n"
+            "`/evolve task <description>` — manually trigger a cycle"
+        )
+        return
+
+# For unrecognised slash commands, try agent.triage() first
     # so skills with exec dispatch (e.g. /markdown, /anonymize) run deterministically.
     # Known built-in commands are already handled above — only forward unknowns.
     _BUILTIN_COMMANDS = {
@@ -723,6 +903,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         "/status", "/verbose", "/packages", "/search", "/install",
         "/clone", "/private_repo", "/update", "/restart", "/rollback",
         "/replica", "/workspaces", "/system", "/version",
+        "/evolve",
     }
     if text.startswith("/"):
         cmd_word = text.split()[0].lower()
