@@ -30,6 +30,7 @@ SOCKET_PATH = "/tmp/kernel_model.sock"
 _model = None
 _processor = None
 _config = None
+_drafter = None  # MTP drafter for speculative decoding
 _lazy_config_path = "config.yaml"  # set at startup, used by lazy load in handlers
 
 
@@ -47,13 +48,13 @@ def _ensure_model():
 
 
 def _load_model(config_path="config.yaml"):
-    """Load model once and store globally."""
-    global _model, _processor, _config
+    """Load model (and optional drafter) once and store globally."""
+    global _model, _processor, _config, _drafter
     if _model is not None:
         return
 
     import torch
-    from transformers import AutoProcessor, AutoModelForImageTextToText
+    from transformers import AutoProcessor, AutoModelForImageTextToText, AutoModelForCausalLM
 
     cfg = _load_config(config_path)
     model_source = os.environ.get("MODEL_SOURCE", "local")
@@ -85,6 +86,22 @@ def _load_model(config_path="config.yaml"):
         model_path, dtype=dtype, device_map="auto"
     )
     print("[model_server] Model loaded.", flush=True)
+
+    # Load MTP drafter for speculative decoding if configured
+    drafter_path = cfg["model"].get("drafter_path")
+    use_speculative = cfg["model"].get("speculative_decoding", False)
+    if drafter_path and use_speculative:
+        try:
+            print(f"[model_server] Loading drafter for speculative decoding: {drafter_path}", flush=True)
+            _drafter = AutoModelForCausalLM.from_pretrained(
+                drafter_path, dtype=dtype, device_map="auto"
+            )
+            print("[model_server] Drafter loaded — speculative decoding enabled (~2x speedup).", flush=True)
+        except Exception as e:
+            print(f"[model_server] WARNING: drafter load failed ({e}) — falling back to standard decoding.", flush=True)
+            _drafter = None
+    else:
+        _drafter = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +142,10 @@ def _handle_infer(params: dict) -> dict:
     input_len = inputs["input_ids"].shape[-1]
 
     with torch.no_grad():
-        out = _model.generate(inputs["input_ids"], max_new_tokens=max_new_tokens, do_sample=False)
+        _gen_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=False)
+        if _drafter is not None:
+            _gen_kwargs["assistant_model"] = _drafter
+        out = _model.generate(inputs["input_ids"], **_gen_kwargs)
     result = _processor.decode(out[0][input_len:], skip_special_tokens=True).strip()
     return {"result": result}
 
@@ -166,7 +186,10 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
         input_len = inputs["input_ids"].shape[-1]
 
         with torch.no_grad():
-            out = _model.generate(**inputs, max_new_tokens=512, do_sample=False)
+            _gen_kwargs = dict(max_new_tokens=512, do_sample=False)
+            if _drafter is not None:
+                _gen_kwargs["assistant_model"] = _drafter
+            out = _model.generate(**inputs, **_gen_kwargs)
 
         response_raw = _processor.decode(out[0][input_len:], skip_special_tokens=False)
         response_clean = _processor.decode(out[0][input_len:], skip_special_tokens=True).strip()
@@ -232,11 +255,12 @@ def _handle_infer_with_image(params: dict) -> dict:
     inputs = _processor(text=text, images=[img], return_tensors="pt").to(_model.device)
     input_len = inputs["input_ids"].shape[-1]
     with torch.no_grad():
-        out = _model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        _gen_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=False)
+        if _drafter is not None:
+            _gen_kwargs["assistant_model"] = _drafter
+        out = _model.generate(**inputs, **_gen_kwargs)
     result = _processor.decode(out[0][input_len:], skip_special_tokens=True).strip()
     return {"result": result}
-
-
 def _handle_infer_with_audio(params: dict) -> dict:
     """Multimodal audio inference."""
     _ensure_model()
@@ -280,7 +304,10 @@ def _handle_infer_with_audio(params: dict) -> dict:
     ).to(_model.device)
     input_len = inputs["input_ids"].shape[-1]
     with torch.no_grad():
-        out = _model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        _gen_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=False)
+        if _drafter is not None:
+            _gen_kwargs["assistant_model"] = _drafter
+        out = _model.generate(**inputs, **_gen_kwargs)
     result = _processor.decode(out[0][input_len:], skip_special_tokens=True).strip()
     return {"result": result}
 

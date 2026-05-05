@@ -33,6 +33,8 @@ model:
   dtype: bfloat16
   name: google/gemma-4-E2B-it
   path: /mnt/e/models/huggingface/hub/models--google--gemma-4-E2B-it/snapshots/4742fe843cc01b9aed62122f6e0ddd13ea48b3d3
+  drafter_path: /mnt/e/models/huggingface/hub/hub/models--google--gemma-4-E2B-it-assistant/snapshots/be0358c16076890848a1344a34209aa7c1df7587
+  speculative_decoding: true
 model_server:
   socket: /tmp/kernel_model.sock
   log: /tmp/kernel_model_server.log
