@@ -2,7 +2,7 @@
 api.py — FastAPI server. Local + mesh endpoints.
 Port 8769 by default.
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -13,6 +13,14 @@ import os, json, time, uuid
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 app = FastAPI(title="Kernel", version="0.2.0")
+
+@app.middleware("http")
+async def _activity_middleware(request: Request, call_next):
+    """Mark the think-at-rest idle detector active on every request."""
+    think = getattr(app.state, "think_at_rest", None)
+    if think is not None:
+        think.mark_active()
+    return await call_next(request)
 
 _cfg = {}
 

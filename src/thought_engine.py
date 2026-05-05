@@ -26,13 +26,14 @@ _THOUGHT_SYSTEM_PROMPT = (
 _GENERATOR_TEMPLATE = """\
 You are Kernel, a local AI agent. You are currently idle — no tasks pending.
 
-Here is your recent context:
-- Skills installed but never used: {unused_skills}
+Here is your current context:
+- Capabilities: {unused_skills}
 - Last 3 gaps you could not fill: {recent_gaps}
 - Your last thought (if any): {last_thought}
 
 Generate 3 brief, honest thoughts about yourself. These can be reflections, desires, \
-observations, or questions. Be genuine. Do not perform. Format: one thought per line.
+observations, or questions about your own capabilities and gaps. Be genuine. Do not perform. \
+Format: one thought per line.
 """
 
 _EVALUATOR_TEMPLATE = """\
@@ -273,6 +274,10 @@ class ThinkAtRest:
         self._is_idle = False
         self._idle_detector.ping()
 
+    def mark_active(self):
+        """Alias for ping() — called by API middleware on every request."""
+        self.ping()
+
     def start(self):
         """Start the think-at-rest subsystem."""
         if not self._enabled:
@@ -429,12 +434,15 @@ class ThinkAtRest:
     # ── Context provider helpers ──────────────────────────────────────────
 
     def _get_unused_skills(self) -> str:
-        """Return comma-separated list of skills never invoked (stub)."""
+        """Return comma-separated list of loaded skills with count."""
         try:
             import agent
-            # agent._skills is list of dicts with 'name' and 'description'
-            skills = [s["name"] for s in getattr(agent, "_skills", [])]
-            return ", ".join(skills[:10]) if skills else "none"
+            skills = getattr(agent, "_skills", []) or []
+            routines = getattr(agent, "_routines", []) or []
+            skill_names = [s["name"] for s in skills]
+            count_str = f"{len(skills)} skills, {len(routines)} routines loaded"
+            sample = ", ".join(skill_names[:10]) if skill_names else "none"
+            return f"{count_str} — sample: {sample}"
         except Exception:
             return "none"
 
