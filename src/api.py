@@ -71,6 +71,12 @@ async def startup():
     mdl.load(_config_path)
     agent.init(_config_path)
     print(f"[api] Kernel ready on :{_cfg['api']['port']}")
+    # Start Think-at-Rest if enabled
+    from thought_engine import ThinkAtRest
+    _think = ThinkAtRest(config=_cfg)
+    if _cfg.get("thinking", {}).get("enabled", False):
+        _think.start()
+    app.state.think_at_rest = _think
     # Start Telegram bot in-process (model already loaded above)
     import telegram_bot
     telegram_bot.start_bot_thread()
@@ -219,3 +225,27 @@ def get_version():
 def list_workspaces_endpoint():
     from workspaces import list_workspaces as _list
     return _list()
+
+
+@app.get("/thoughts")
+def get_thoughts():
+    """Return last 20 thoughts from today's journal."""
+    from thought_journal import ThoughtJournal
+    journal = ThoughtJournal(journal_dir=_cfg.get("thinking", {}).get("journal_dir"))
+    thoughts = journal.read_today()
+    return thoughts[-20:] if len(thoughts) > 20 else thoughts
+
+
+@app.get("/thoughts/today")
+def get_thoughts_today():
+    """Return today's full journal as markdown text."""
+    import datetime
+    from thought_journal import ThoughtJournal
+    journal = ThoughtJournal(journal_dir=_cfg.get("thinking", {}).get("journal_dir"))
+    journal_dir = journal.journal_dir
+    path = os.path.join(journal_dir, datetime.date.today().strftime("%Y-%m-%d") + ".md")
+    if not os.path.exists(path):
+        return {"date": str(datetime.date.today()), "content": "", "entries": 0}
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    return {"date": str(datetime.date.today()), "content": content, "entries": content.count("## ")}

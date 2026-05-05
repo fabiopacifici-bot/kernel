@@ -42,3 +42,13 @@ olly_workspace: ""  # set to your OpenClaw workspace path if using Olly integrat
 routines_dir: ~/.kernel/ecosystem
 skills_dir: ~/.kernel/ecosystem
 workspace: ~/.kernel/workspace
+thinking:
+  enabled: true
+  idle_threshold_s: 300
+  thought_interval_s: 1800
+  min_score: 0.4
+  promote_threshold: 0.7
+  proactive_telegram: true
+  proactive_max_per_day: 2
+  journal_dir: ~/.kernel/workspace/thoughts
+  ideas_dir: ~/.kernel/workspace/ideas

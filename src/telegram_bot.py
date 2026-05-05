@@ -895,6 +895,27 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         )
         return
 
+    if text == "/thoughts":
+        try:
+            import requests as _req
+            r = _req.get("http://localhost:8769/thoughts", timeout=5)
+            thoughts = r.json() if r.ok else []
+        except Exception:
+            thoughts = []
+        if not thoughts:
+            send_message(chat_id, "🤔 No thoughts recorded today yet.")
+        else:
+            recent = thoughts[-10:]
+            lines = ["🤔 *Kernel's thoughts today:*\n"]
+            for t in recent:
+                score = t.get("score", 0.0)
+                category = t.get("category", "thought")
+                thought_text = t.get("thought", "")
+                time_str = t.get("time", "")
+                lines.append(f"*{time_str}* [{category}] _{thought_text}_ (score: {score:.2f})")
+            send_message(chat_id, "\n".join(lines))
+        return
+
 # For unrecognised slash commands, try agent.triage() first
     # so skills with exec dispatch (e.g. /markdown, /anonymize) run deterministically.
     # Known built-in commands are already handled above — only forward unknowns.
@@ -903,7 +924,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
         "/status", "/verbose", "/packages", "/search", "/install",
         "/clone", "/private_repo", "/update", "/restart", "/rollback",
         "/replica", "/workspaces", "/system", "/version",
-        "/evolve",
+        "/evolve", "/thoughts",
     }
     if text.startswith("/"):
         cmd_word = text.split()[0].lower()
