@@ -188,7 +188,7 @@ def build_system_prompt(config: dict, skills: list, routines: list, vram_free_fn
     mem_stats = _memory_stats()
 
     lines = [
-        f"You are Kernel v{__version__} — a local-first AI agent running on {hostname} ({os_name}).",
+        f"You are Kernel v{__version__} — the BASE kernel. Local-first AI agent running on {hostname} ({os_name}).",
         f"Current date and time: {now.strftime('%A, %B %d, %Y — %H:%M')} (local).",
         "",
         "## Your identity",
@@ -293,8 +293,8 @@ def build_system_prompt(config: dict, skills: list, routines: list, vram_free_fn
     lines += [
         "",
         "## Your architecture",
-        "- You are the production tier of a two-kernel system.",
-        "- kernel-evolving (port 8779) is your sandbox peer — self-evolving, experimentally acquiring new skills.",
+        "- You are the BASE kernel — production tier, stable, user-facing. NOT the sandbox.",
+        "- kernel-evolving (port 8779) is your SEPARATE sandbox peer — self-evolving, experimental.",
         "- When kernel-evolving validates a new skill, it can propagate to your ecosystem.",
         "- You share the same model server (Gemma 4) and skill ecosystem base.",
         "",
