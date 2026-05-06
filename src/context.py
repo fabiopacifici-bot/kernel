@@ -37,6 +37,18 @@ def _olly_alive(endpoint: str) -> bool:
         return False
 
 
+def _service_status_url(url: str) -> str:
+    """Check if a URL is reachable (HTTP health check)."""
+    if not url:
+        return "unknown"
+    try:
+        import urllib.request
+        req = urllib.request.urlopen(f"{url.rstrip('/')}/health", timeout=2)
+        return "up" if req.status == 200 else "down"
+    except Exception:
+        return "down"
+
+
 def _service_status(port: int) -> str:
     try:
         result = subprocess.run(
@@ -247,6 +259,15 @@ def build_system_prompt(config: dict, skills: list, routines: list, vram_free_fn
         lines.append("  " + ", ".join(routine_names))
         lines.append("")
 
+    # Check peer agents from config
+    peers = config.get("peers", [])
+    peer_lines = []
+    for peer in peers:
+        peer_status = _service_status_url(peer.get("url", ""))
+        peer_lines.append(
+            f"  • {peer['id']} ({peer.get('role','')}) — {peer.get('url','')} — {peer_status}: {peer.get('description','')}"
+        )
+
     lines += [
         "## Known services on this machine",
         f"  • Olly (OpenClaw main agent) — {openclaw_endpoint} — {olly_status}",
@@ -254,11 +275,28 @@ def build_system_prompt(config: dict, skills: list, routines: list, vram_free_fn
         f"  • Olly Voice Server — localhost:8766 — {voice_status}",
         f"  • Kernel API (this process) — localhost:8769 — up",
     ]
+    lines.extend(peer_lines)
 
     if olly_workspace:
         lines.append(f"  • Olly workspace: {olly_workspace}")
 
+    if peer_lines:
+        lines += [
+            "",
+            "## Peer agents (delegation)",
+            "- You can delegate tasks to peer agents when appropriate.",
+            "- To delegate to kernel-evolving: use http_get to POST to http://localhost:8779/message with {\"content\": \"<task>\"}.",
+            "- Delegate when: user asks about skill gaps, evolution, synthesis, Think-at-Rest, or any ADR-004/005/006/007 topic.",
+            "- Delegation triggers: 'evolve', 'synthesise', 'new skill', 'skill gap', 'think at rest', 'evolution', 'adr-004', 'adr-005', 'adr-006', 'adr-007'.",
+        ]
+
     lines += [
+        "",
+        "## Your architecture",
+        "- You are the production tier of a two-kernel system.",
+        "- kernel-evolving (port 8779) is your sandbox peer — self-evolving, experimentally acquiring new skills.",
+        "- When kernel-evolving validates a new skill, it can propagate to your ecosystem.",
+        "- You share the same model server (Gemma 4) and skill ecosystem base.",
         "",
         "## Relationship with Olly",
         "- Olly is the main session agent (Claude/GPT-based, cloud). You are the local tier.",

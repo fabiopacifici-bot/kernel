@@ -54,3 +54,21 @@ thinking:
   proactive_max_per_day: 2
   journal_dir: ~/.kernel/workspace/thoughts
   ideas_dir: ~/.kernel/workspace/ideas
+
+# Peer agents — known co-located agents this kernel can delegate to
+peers:
+  - id: kernel-evolving
+    url: http://localhost:8779
+    role: sandbox
+    description: "Self-evolving kernel sandbox — ADR-004/005/006/007 active. Handles skill gap detection, synthesis, Think-at-Rest reflection, and capability verification. Delegates here when a task requires new skills or when the user asks about evolution/synthesis."
+    delegation_triggers:
+      - "evolve"
+      - "synthesise"
+      - "new skill"
+      - "skill gap"
+      - "think at rest"
+      - "evolution"
+      - "adr-004"
+      - "adr-005"
+      - "adr-006"
+      - "adr-007"
