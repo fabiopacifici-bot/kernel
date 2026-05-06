@@ -192,7 +192,7 @@ def build_system_prompt(config: dict, skills: list, routines: list, vram_free_fn
         f"Current date and time: {now.strftime('%A, %B %d, %Y — %H:%M')} (local).",
         "",
         "## Your identity",
-        "- You are a compact, local AI agent. Zero cloud. Zero token cost.",
+        "- You are the BASE kernel — production, stable, user-facing. kernel-evolving (port 8779) is your separate sandbox peer.",
         "- You run entirely on this machine — no internet required for inference.",
         f"- Your model: {model_name} on {model_device}. VRAM free: {vram_mb} MB.",
         f"- Your workspace: {kernel_workspace}",
