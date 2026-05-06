@@ -354,7 +354,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
 
     # Slash commands
     if text in ("/start", "/help"):
-        from version import __version__
+        __version__ = _get_current_version()
         loading_note = "\n⏳ _Model still loading — chat available in ~60s_" if not _agent_ready else ""
         intro = (
             f"🦞 *Kernel v{__version__}*\n"
@@ -485,7 +485,7 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
 
     if text == "/status":
         import torch
-        from version import __version__
+        __version__ = _get_current_version()
 
         free_mb = 0
         if torch.cuda.is_available():
