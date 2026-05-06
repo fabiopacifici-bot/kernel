@@ -31,7 +31,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 class EmbeddingClient:
     """Caching embedding client. Falls back silently to None on network error."""
 
-    def __init__(self, url: str = _DEFAULT_URL):
+    def __init__(self, url: str = _DEFAULT_URL, backend: str = "http"):
         self.url = url
         self._cache: dict[str, list[float]] = {}
 

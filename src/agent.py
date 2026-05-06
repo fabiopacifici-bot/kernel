@@ -29,7 +29,10 @@ def init(config_path="config.yaml"):
     _skills   = load_skills(skills_dir)
     _routines = load_routines(routines_dir)
     embedding_url = _config.get("embedding_server_url", "http://localhost:8770/embeddings")
-    _embedding_client = EmbeddingClient(url=embedding_url)
+    _embedding_client = EmbeddingClient(
+        backend=_config.get("embedding_backend", "http"),
+        embedding_url=embedding_url,
+    )
     print(f"[agent] {len(_skills)} skills, {len(_routines)} routines loaded")
 
 

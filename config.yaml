@@ -39,6 +39,7 @@ model_server:
   socket: /tmp/kernel_model.sock
   log: /tmp/kernel_model_server.log
 olly_workspace: ""  # set to your OpenClaw workspace path if using Olly integration
+embedding_backend: "http"
 embedding_server_url: "http://localhost:8770/embeddings"
 routines_dir: ~/.kernel/ecosystem
 skills_dir: ~/.kernel/ecosystem
