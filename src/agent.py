@@ -31,7 +31,7 @@ def init(config_path="config.yaml"):
     embedding_url = _config.get("embedding_server_url", "http://localhost:8770/embeddings")
     _embedding_client = EmbeddingClient(
         backend=_config.get("embedding_backend", "http"),
-        embedding_url=embedding_url,
+        url=embedding_url,
     )
     print(f"[agent] {len(_skills)} skills, {len(_routines)} routines loaded")
 
