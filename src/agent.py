@@ -6,7 +6,8 @@ import requests
 import yaml
 import os
 from model import infer, infer_with_tools, vram_free_mb
-from skills import load_all as load_skills, find as find_skill, run as run_skill
+from skills import load_all as load_skills, find as find_skill, find_semantic as find_skill_semantic, run as run_skill
+from embedding_client import EmbeddingClient
 from routines import load_all as load_routines, find as find_routine, run as run_routine
 from replica import spawn, active as active_replicas, can_spawn
 from tools import WORKSPACE as _DEFAULT_WORKSPACE
@@ -15,6 +16,7 @@ from context import build_system_prompt
 _config = None
 _skills = []
 _routines = []
+_embedding_client: EmbeddingClient | None = None
 
 
 def init(config_path="config.yaml"):
@@ -26,6 +28,8 @@ def init(config_path="config.yaml"):
     routines_dir = os.path.expanduser(os.environ.get("ROUTINES_DIR") or _config.get("routines_dir", "./routines"))
     _skills   = load_skills(skills_dir)
     _routines = load_routines(routines_dir)
+    embedding_url = _config.get("embedding_server_url", "http://localhost:8770/embeddings")
+    _embedding_client = EmbeddingClient(url=embedding_url)
     print(f"[agent] {len(_skills)} skills, {len(_routines)} routines loaded")
 
 
@@ -104,6 +108,13 @@ def triage(text: str, step_callback=None) -> str:
             if cmd and cmd in lower:
                 print(f"[agent] Running skill (command match '{cmd}'): {s['name']}")
                 return run_skill(s, text, infer)
+
+    # --- Semantic skill fallback ---
+    if _embedding_client is not None:
+        sem_skill = find_skill_semantic(text, _skills, _embedding_client)
+        if sem_skill:
+            print(f"[agent] Running skill (semantic match): {sem_skill['name']}")
+            return run_skill(sem_skill, text, infer)
 
     # --- Status / system queries ---
     if any(w in lower for w in ["status", "vram", "replicas", "health"]):

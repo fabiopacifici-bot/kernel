@@ -6,6 +6,7 @@ import os
 import re
 import yaml
 from pathlib import Path
+from embedding_client import EmbeddingClient
 
 
 def _parse_skill(path: Path) -> dict | None:
@@ -47,6 +48,32 @@ def load_all(skills_dir="./skills") -> list[dict]:
 def find(name: str, skills: list[dict]) -> dict | None:
     name = name.lower().strip()
     return next((s for s in skills if s["name"].lower() == name), None)
+
+
+def find_semantic(query: str, skills: list[dict], embedding_client: EmbeddingClient) -> dict | None:
+    """Find best matching skill using semantic similarity. Falls back to exact find()."""
+    exact = find(query, skills)
+    if exact:
+        return exact
+
+    best_skill = None
+    best_score = 0.0
+    THRESHOLD = 0.5  # minimum cosine similarity to consider a match
+
+    for skill in skills:
+        name = skill.get("name", "")
+        desc = skill.get("instructions", "")[:200]  # first 200 chars of instructions
+        commands = " ".join(str(c) for c in skill.get("commands", []))
+        skill_text = f"{name} {desc} {commands}".strip()
+
+        sim = embedding_client.similarity(query, skill_text)
+        if sim is not None and sim > best_score:
+            best_score = sim
+            best_skill = skill
+
+    if best_score >= THRESHOLD:
+        return best_skill
+    return None
 
 
 def run(skill: dict, user_input: str, infer_fn) -> str:
