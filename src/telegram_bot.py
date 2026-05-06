@@ -752,6 +752,18 @@ def handle_message(chat_id: str, text: str, sender_name: str = "", photo_file_id
             print(f"[evolve] API error: {e}")
             return None
 
+    # Shortcut aliases: evo, ev, @evo, /evo → /evolve
+    _evo_aliases = ("evo ", "ev ", "@evo", "/evo")
+    if text.lower() in ("evo", "ev", "@evo", "/evo") or \
+       any(text.lower().startswith(a) for a in _evo_aliases):
+        # Rewrite to /evolve format
+        suffix = ""
+        for alias in _evo_aliases:
+            if text.lower().startswith(alias):
+                suffix = text[len(alias):].strip()
+                break
+        text = f"/evolve {suffix}".strip()
+
     if text.startswith("/evolve"):
         parts = text.split(maxsplit=1)
         sub = parts[1].strip() if len(parts) > 1 else ""
