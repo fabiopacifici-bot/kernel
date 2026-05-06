@@ -3,13 +3,26 @@
 > A local-first AI agent powered by Gemma 4 E2B-it.  
 > Zero cloud. Zero token cost. Runs on the edge.  
 > Talks to you via Telegram, CLI, or API.  
-> Supports multimodal input: images and voice via Gemma 4.
+> Supports multimodal input: images and voice via Gemma 4.  
+> Companion base to [kernel-evolving](https://github.com/fabiopacifici-bot/kernel-evolving) — the self-evolving research sandbox.
 
-**Current stable: v0.9.0**
+![version](https://img.shields.io/badge/version-v1.3.0-blue)
+![status](https://img.shields.io/badge/status-production-green)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
 
 ---
 
-## Quick Start
+## One-line install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fabiopacifici-bot/kernel/main/install.sh | bash
+```
+
+The installer clones the repo, creates a venv, installs deps, and wires the `kernel` CLI to your `$PATH`.
+
+---
+
+## Quick Start (manual)
 
 ```bash
 git clone https://github.com/fabiopacifici-bot/kernel
@@ -19,7 +32,7 @@ pip install -r requirements.txt
 bash start.sh
 ```
 
-That's it. The agent starts on port 8769, loads the model, and connects the Telegram bot.
+The agent starts on port 8769, loads the model, and connects the Telegram bot.
 
 ### Make the `kernel` CLI globally available
 
@@ -60,6 +73,7 @@ Send `/help` to your bot — you'll get a menu with tappable inline buttons for 
 /update       → pull latest release and restart
 /restart      → restart without pulling (apply config changes)
 /rollback     → revert to the previous commit
+/evolve        → delegate to kernel-evolving sandbox (if running)
 ```
 
 Tap any button from `/help` to fire that command directly — no typing needed.
@@ -149,9 +163,42 @@ Telegram / CLI / API
    skills.py + routines.py
         │
    tools.py → shell, files, web, memory
+        │
+        ▼ (optional)
+   kernel-evolving (port 8770) ← peer awareness + delegation
 ```
 
 A single uvicorn process owns both the API server and the Telegram bot (bot runs as a daemon thread inside the startup event). `start.sh` kills port 8769 and relaunches the API — the model server is never restarted if it's already healthy.
+
+### Capabilities (v1.3.0)
+
+| Capability | ADR | Description |
+|---|---|---|
+| Two-tier self-evolving loop | ADR-004 | Semantic match (Tier 1) → skill synthesis (Tier 2). Base delegates to kernel-evolving sandbox when evolution is needed. |
+| Think-at-Rest | ADR-005 | Idle reflection using System 1/2 speculative decoding. Base surfaces reflection triggers; evolving executes them. |
+| Capability verification | ADR-006 | Yes/no model inference before Tier 1 acquisition — eliminates false positives from semantic similarity alone. |
+| Capability recommendation | ADR-007 | Partial match surface between ADR-006 rejection and Tier 2. Logs near-misses, suggests composable skills. |
+| Peer awareness | — | Base kernel knows about `kernel-evolving` (port 8770) and can delegate evolution tasks to it via `/evolve`. |
+| Semantic embedding | — | `embedding_backend=http` via ai-server — skills and tasks embedded for cosine-similarity matching without loading a second model. |
+
+### Peer Awareness — kernel-evolving Sandbox
+
+Kernel base is aware of its research companion:
+
+```
+Kernel base (port 8769)   ←→   kernel-evolving (port 8770)
+     │                              │
+     └── delegates /evolve ─────────┘
+         receives reflection
+         triggers back
+```
+
+When `kernel-evolving` is running, base delegates:
+- `/evolve` commands — trigger evolution cycles in the sandbox
+- Think-at-Rest reflection — idle gaps are analysed in the evolving tier
+- Capability gaps — Tier 2 synthesis happens in the evolving sandbox; synthesised skills are returned to base
+
+If kernel-evolving is not running, base operates normally without evolution capabilities.
 
 ### Named Persistent Replicas
 
@@ -192,7 +239,20 @@ Key properties:
 **Use case — multi-agent pipelines:**
 Spawn multiple named replicas each loaded with a different brief or role. Each replica maintains its own conversation context while sharing the underlying model weights — enabling parallel specialist agents at minimal VRAM cost.
 
+### Semantic Embedding
 
+Kernel uses `embedding_backend=http` to route embedding calls to an external ai-server endpoint. This enables cosine-similarity skill matching without loading a second model into VRAM:
+
+```
+task → embed(task) → cosine_sim(skill_embeddings) → top-k candidates → ADR-006 verify
+```
+
+Configure in `config.yaml`:
+```yaml
+embedding:
+  backend: http
+  url: http://localhost:8780/embed
+```
 
 ### Model Persistence
 
@@ -230,6 +290,10 @@ model:
 api:
   port: 8769
 
+embedding:
+  backend: http
+  url: http://localhost:8780/embed
+
 skills_dir: skills
 routines_dir: routines
 ```
@@ -239,6 +303,8 @@ Environment variables (`.env`):
 ```
 MICROCLAW_TELEGRAM_BOT_TOKEN=<your bot token>
 MICROCLAW_TELEGRAM_CHAT_ID=<your chat id>   # whitelist — only this ID can talk to the bot
+KERNEL_USER_NAME=YourName
+KERNEL_USER_HANDLE=yourhandle
 ```
 
 ---
@@ -267,6 +333,8 @@ Kernel registers as a sub-agent in the OpenClaw multi-agent hierarchy:
 Olly (main session)        ← complex reasoning, external actions
        ↕
 Kernel (local agent)       ← local execution, zero token cost
+       ↕
+kernel-evolving            ← self-evolving sandbox (optional)
 ```
 
 Olly can delegate tasks to Kernel, which executes them entirely locally — no cloud tokens consumed.
@@ -296,103 +364,36 @@ Set your private ecosystem repo:
 | Bot | python-requests long-polling (no python-telegram-bot dependency) |
 | Config | YAML (`config.yaml`) |
 | Skills/Routines | SKILL.md / ROUTINE.md (OpenClaw format, fully compatible) |
+| Embedding | HTTP backend (ai-server, configurable) |
 
 ---
 
 ## Changelog
 
-### v0.9.0 — May 2, 2026
+### v1.3.0 — May 2026
+- Peer awareness: base kernel detects and delegates to `kernel-evolving` (port 8770)
+- Semantic embedding via `embedding_backend=http` (ai-server) — no extra VRAM
+- ADR-007 (capability recommendation) surface in base: near-miss logging + composable skill hints
+
+### v1.2.0 — May 2026
+- ADR-006: capability verification — Gemma 4 yes/no inference before Tier 1 acquisition
+- Eliminates false positive skill matches from semantic similarity alone
+- Tier 2 synthesis now reliably triggered for genuinely unhandled tasks
+
+### v1.1.0 — May 2026
+- ADR-005: Think-at-Rest — idle reflection via System 1/2 speculative decoding
+- ADR-004: Two-tier self-evolving loop — semantic match (Tier 1) → skill synthesis (Tier 2)
+- Evolution API endpoints: `/evolution/state`, `/evolution/control`, `/evolution/trigger`
+
+### v1.0.0 — May 2026
 - Named persistent replicas with brief injection (`spawn_named`, `/replica/named`)
-- New API: `/replica/<name>/message`, `/replica/<name>/status`, `DELETE /replica/<name>`
-- Updated `/replica/active` to include name, persistent flag
-- Telegram `/replica list` and `/replica stop <name>` commands
-- Brief file loaded into system prompt at spawn time
-- Isolated conversation history per replica (up to 20 turns)
-- Backward compat: existing `spawn(role, task)` unchanged
-- VRAM cap raised to 4 replicas
-
-### v0.8.2 — May 2, 2026
-- `run_skill` and `run_routine` as callable tools — Gemma can invoke any skill or routine natively
-
-### v0.7.0 — May 1, 2026
-- Multimodal support: send images and voice notes to Kernel via Telegram
-- Gemma 4 natively processes images and audio (no extra model needed)
-- `infer_with_image()` and `infer_with_audio()` via model_server socket
-- Fix: `tools.py` unguarded dict key access → safe `.get()` with error feedback
-- Fix: `_handle_infer` type guard — string messages wrapped as user turn
-- Fix: VRAM guard before model load — refuses load if < 6000MB free
-- Fix: model_server dedup — stale socket detection, clean exit if already running
-- Fix: `telegram_bot.py` `UnboundLocalError` for `os` in `handle_message` (inline import removed)
-- Fix: API `/message` with empty body returns immediately instead of hanging on inference
-- VRAM warning flag in `/health` when free VRAM < 2000MB
-
-### v0.6.5 — April 30, 2026
-- Server-side interaction logger for dataset collection
-- Shared updater.py + CLI symlink install + live version in header
-
-### v0.6.0 — April 29, 2026
+- Multimodal support: images and voice notes via Gemma 4
 - Model persistence: Gemma 4 survives API restarts via Unix socket IPC
-- Separate model_server process keeps model in VRAM across bot/API restarts
 - 46-test suite (unit + integration)
-
-### v0.5.2 — April 28, 2026
-- `/help` now sends inline tappable buttons for every command
-- Button callbacks route directly to command handlers
-
-### v0.5.1 — April 28, 2026
-- Fix: `/update` always restarts if disk version differs from running version
-- Previously "Already up to date" from git caused a false no-op even when process was outdated
-
-### v0.5.0 — April 28, 2026
-- Added `/restart` command — restarts without git pull (for config changes, recovery)
-- Listed in `/help` output
-
-### v0.4.9 — April 28, 2026
-- Fetch up to 100 tags for reliable semver update check
-
-### v0.4.8 — April 28, 2026
-- Fix: sort tags by semver (not push order) to find true latest version
-
-### v0.4.7 — April 28, 2026
-- Fix: API captures all send_message replies for slash commands (not just first)
-
-### v0.4.6 — April 28, 2026
-- Fix: `/update` always does fresh tag check — no more false "nothing to update"
-- Shows `v_old → v_new` on update
-
-### v0.4.5 — April 28, 2026
-- Fix: pass `ALLOWED_CHAT_ID` to `handle_message` in API slash command routing (avoids Unauthorized)
-
-### v0.4.4 — April 28, 2026
-- `/message` API now routes slash commands through `handle_message` — `/help`, `/skills`, `/routines` etc. work via API
-
-### v0.4.3 — April 27, 2026
-- Bot runs as daemon thread inside uvicorn — `start.sh` kills one process, not two
-- `/update` kills bot process and restarts the single unified process
-
-### v0.4.2 — April 27, 2026
-- Fix: `/update` no longer causes downgrade bug
-
-### v0.4.1 — April 27, 2026
-- Fix: skills and routines load correctly from ecosystem
-
-### v0.4.0 — April 26, 2026
 - Ecosystem commands: `/search`, `/install`, `/clone`, `/private_repo`
 - Three-tier ecosystem (community / private / third-party)
-
-### v0.3.0 — April 26, 2026
-- Olly recovery integration
-- `/run` command for skills
-
-### v0.2.1 — April 26, 2026
-- Official rename from MicroClaw → Kernel (17 files updated)
-
-### v0.2.0 — April 26, 2026
-- Self-update via `/update`
-- Fix `/skills` and `/routines` listing
-
-### v0.1.0 — April 3, 2026
-- First release as MicroClaw
+- `/help` with inline tappable buttons
+- Self-update via `/update`, `/rollback`, `/restart`
 
 ---
 
@@ -400,4 +401,4 @@ Set your private ecosystem repo:
 
 ✅ **Active development.** Running in production.  
 **Repo:** [fabiopacifici-bot/kernel](https://github.com/fabiopacifici-bot/kernel)  
-
+**Research companion:** [fabiopacifici-bot/kernel-evolving](https://github.com/fabiopacifici-bot/kernel-evolving)
