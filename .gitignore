@@ -10,3 +10,15 @@ data/d3.v7.min.js
 # Local workspace symlinks — not for repo
 /skills
 /routines
+
+# Runtime & session data — never commit
+*.db
+*.sqlite
+*.sqlite3
+/tmp/
+.kernel_memory.json
+*.offset
+memory.json
+sessions/
+conversations/
+chat_history/
