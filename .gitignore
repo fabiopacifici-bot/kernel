@@ -17,6 +17,9 @@ data/d3.v7.min.js
 *.sqlite3
 /tmp/
 .kernel_memory.json
+.kernel_evolving_memory.json
+chat_history.db
+chat_history_evolving.db
 *.offset
 memory.json
 sessions/
