@@ -87,7 +87,7 @@ def run(skill: dict, user_input: str, infer_fn) -> str:
     if exec_template:
         # Substitute {args} with everything after the command trigger
         # e.g. "/markdown /path/to/file.pdf" → args = "/path/to/file.pdf"
-        import shlex
+        import shlex, re as _re
         args = user_input.strip()
         # Strip leading slash-command word if present
         parts = args.split(None, 1)
@@ -95,6 +95,12 @@ def run(skill: dict, user_input: str, infer_fn) -> str:
             args = parts[1]
         elif len(parts) == 1 and parts[0].startswith("/"):
             args = ""
+        # For natural-language inputs (from run_skill tool call), extract URL if present
+        # so exec scripts receive a clean URL rather than a full sentence
+        if not args.startswith("/") and "{args}" in exec_template:
+            url_match = _re.search(r"https?://\S+", args)
+            if url_match:
+                args = url_match.group(0).rstrip(".,)")
         cmd = exec_template.replace("{args}", args).replace("{input}", user_input)
         skill_dir = str(Path(skill["path"]).parent)
         env = os.environ.copy()

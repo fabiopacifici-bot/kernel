@@ -163,7 +163,7 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
 
     messages = params["messages"]
     tools = params.get("tools", [])
-    workspace = params.get("workspace", "~/.openclaw/workspace")
+    workspace = os.path.expanduser(params.get("workspace", "~/.openclaw/workspace"))
     max_steps = params.get("max_steps", 15)
 
     current_messages = []

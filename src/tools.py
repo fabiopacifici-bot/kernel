@@ -119,6 +119,9 @@ TOOLS = [
 
 def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
     """Execute a tool call and return the result as a string."""
+    import os
+    # Always expand ~ so subprocess.run cwd never gets a literal tilde
+    workspace = os.path.expanduser(workspace)
     if name == "exec_shell":
         cmd = arguments.get("command")
         if not cmd:
