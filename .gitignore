@@ -25,3 +25,6 @@ memory.json
 sessions/
 conversations/
 chat_history/
+
+# Bug: Path("~/...") without expanduser created a literal ~ directory
+src/~/

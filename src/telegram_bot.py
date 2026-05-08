@@ -252,7 +252,7 @@ def handle_callback(chat_id: str, data: str, message_id: int):
 
 def _search_collective_memory(query: str) -> str:
     """Run the collective memory search script and return results (or empty string)."""
-    script = "~/.openclaw/workspace/collective-memory/scripts/search.py"
+    script = os.path.expanduser("~/.openclaw/workspace/collective-memory/scripts/search.py")
     try:
         result = subprocess.run(
             ["python3", script, query, "--top", "2"],
@@ -267,7 +267,7 @@ def _search_collective_memory(query: str) -> str:
 
 def _write_collective_memory(user_message: str, reply: str) -> None:
     """Write a new collective memory entry based on the conversation turn."""
-    entries_dir = Path("~/.openclaw/workspace/collective-memory/entries")
+    entries_dir = Path(os.path.expanduser("~/.openclaw/workspace/collective-memory/entries"))
     entries_dir.mkdir(parents=True, exist_ok=True)
 
     today = date.today().isoformat()
