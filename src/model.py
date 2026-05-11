@@ -185,6 +185,19 @@ def _parse_tool_call(text: str) -> "dict | None":
     import json
     import re
 
+    # Pattern 0: call:name\n{...} — newline-separated JSON block, handles nested braces
+    _m0 = re.search(r'call:(\w+)\s*\n', text)
+    if _m0:
+        _tname = _m0.group(1)
+        _brace = text.find('{', _m0.end())
+        if _brace >= 0:
+            try:
+                _args, _ = json.JSONDecoder().raw_decode(text, _brace)
+                if isinstance(_args, dict):
+                    return {"name": _tname, "arguments": _args}
+            except Exception:
+                pass
+
     # Pattern 1: Gemma 4 with special tokens preserved
     # <|tool_call>call:exec_shell{command:<|"|>date<|"|>}<tool_call|>
     # The <|"|> tokens are string delimiters

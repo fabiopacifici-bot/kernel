@@ -173,8 +173,10 @@ def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
         content = arguments.get("content")
         if content is None:
             return "(error: write_file requires 'content' argument)"
+        # Expand ~ first, then fall back to workspace-relative only if truly relative
+        path = os.path.expanduser(path)
         if not path.startswith("/"):
-            path = path.replace("~/", "~/"); path = f"{workspace}/{path}" if not path.startswith("/") else path
+            path = os.path.join(workspace, path)
         try:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w") as f:
