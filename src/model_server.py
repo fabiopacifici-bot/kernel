@@ -108,6 +108,11 @@ def _load_model(config_path="config.yaml"):
 # RPC handler functions
 # ---------------------------------------------------------------------------
 
+
+def _target_device() -> str:
+    import torch
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
 def _handle_infer(params: dict) -> dict:
     """Standard chat inference."""
     _ensure_model()
@@ -138,7 +143,7 @@ def _handle_infer(params: dict) -> dict:
         add_generation_prompt=True,
         enable_thinking=False,
     )
-    inputs = _processor(text=text, return_tensors="pt").to(_model.device)
+    inputs = _processor(text=text, return_tensors="pt").to(_target_device())
     input_len = inputs["input_ids"].shape[-1]
 
     with torch.no_grad():
@@ -190,14 +195,14 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
                 current_messages, tools=tools_openai, tokenize=True,
                 return_dict=True, return_tensors="pt",
                 add_generation_prompt=True, enable_thinking=enable_thinking,
-            ).to(_model.device)
+            ).to(_target_device())
         except Exception as e:
             print(f"[tool_loop] template error: {e} — fallback", flush=True)
             text = _processor.apply_chat_template(
                 current_messages, tools=tools_openai, tokenize=False,
                 add_generation_prompt=True, enable_thinking=False,
             )
-            inputs = _processor(text=text, return_tensors="pt").to(_model.device)
+            inputs = _processor(text=text, return_tensors="pt").to(_target_device())
 
         input_len = inputs["input_ids"].shape[-1]
         with torch.no_grad():
@@ -258,7 +263,7 @@ def _handle_infer_with_image(params: dict) -> dict:
     text = _processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
-    inputs = _processor(text=text, images=[img], return_tensors="pt").to(_model.device)
+    inputs = _processor(text=text, images=[img], return_tensors="pt").to(_target_device())
     input_len = inputs["input_ids"].shape[-1]
     with torch.no_grad():
         _gen_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=False)
@@ -307,7 +312,7 @@ def _handle_infer_with_audio(params: dict) -> dict:
         text=text,
         audio=[{"array": audio_array, "sampling_rate": sample_rate}],
         return_tensors="pt"
-    ).to(_model.device)
+    ).to(_target_device())
     input_len = inputs["input_ids"].shape[-1]
     with torch.no_grad():
         _gen_kwargs = dict(max_new_tokens=max_new_tokens, do_sample=False)
