@@ -329,8 +329,75 @@ def _handle_health(params: dict) -> dict:
     return {"status": "ready", "model": model_name, "vram_free_mb": vram_free, "vram_warning": vram_warning}
 
 
-# ---------------------------------------------------------------------------
-# Socket server
+def _handle_swap_model(params: dict) -> dict:
+    """Hot-swap the loaded model to a different checkpoint.
+    Unloads current model + drafter, frees VRAM, loads new one, updates _config.
+    params:
+      model_path   str — local path or HF repo id
+      drafter_path str — optional drafter ("" = disable, None/omitted = keep current config)
+      dtype        str — "bfloat16" (default) or "float16"
+    """
+    global _model, _processor, _drafter, _config
+    import gc, torch
+    from transformers import AutoModelForCausalLM, AutoProcessor
+
+    new_path     = params.get("model_path", "").strip()
+    drafter_path = params.get("drafter_path", None)
+    dtype_str    = params.get("dtype", "bfloat16")
+
+    if not new_path:
+        return {"error": "model_path is required"}
+
+    dtype = torch.bfloat16 if dtype_str == "bfloat16" else torch.float16
+
+    print(f"[model_server] swap_model: unloading current model...", flush=True)
+    if _model is not None:
+        del _model; _model = None
+    if _drafter is not None:
+        del _drafter; _drafter = None
+    if _processor is not None:
+        del _processor; _processor = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    print(f"[model_server] swap_model: loading {new_path}...", flush=True)
+    try:
+        _processor = AutoProcessor.from_pretrained(new_path)
+        _model = AutoModelForCausalLM.from_pretrained(
+            new_path, torch_dtype=dtype, device_map="auto"
+        )
+        _model.eval()
+    except Exception as e:
+        return {"error": f"model load failed: {e}"}
+
+    if _config:
+        _config["model"]["path"] = new_path
+        _config["model"]["name"] = new_path
+
+    # Drafter: None = keep config default, "" = disable, str = load new
+    resolved_drafter = drafter_path
+    if resolved_drafter is None:
+        resolved_drafter = (_config or {}).get("model", {}).get("drafter_path", "") if _config else ""
+
+    if resolved_drafter:
+        try:
+            print(f"[model_server] swap_model: loading drafter {resolved_drafter}...", flush=True)
+            _drafter = AutoModelForCausalLM.from_pretrained(
+                resolved_drafter, torch_dtype=dtype, device_map="auto"
+            )
+            print("[model_server] swap_model: drafter loaded", flush=True)
+        except Exception as e:
+            print(f"[model_server] swap_model: drafter failed ({e}) — continuing without", flush=True)
+            _drafter = None
+    else:
+        _drafter = None
+
+    model_name = new_path.split("/")[-1]
+    print(f"[model_server] swap_model: ready — {model_name}", flush=True)
+    return {"status": "ok", "model": model_name}
+
+
 # ---------------------------------------------------------------------------
 
 class _RequestHandler(socketserver.StreamRequestHandler):
@@ -376,6 +443,10 @@ class _RequestHandler(socketserver.StreamRequestHandler):
 
             elif method == "health":
                 resp = _handle_health(params)
+                send_line(json.dumps(resp))
+
+            elif method == "swap_model":
+                resp = _handle_swap_model(params)
                 send_line(json.dumps(resp))
 
             else:
