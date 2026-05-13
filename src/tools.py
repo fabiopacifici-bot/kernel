@@ -133,7 +133,7 @@ def execute_tool(name: str, arguments: dict, workspace: str = WORKSPACE) -> str:
                 timeout=timeout, cwd=workspace
             )
             out = result.stdout.strip() or result.stderr.strip() or "(no output)"
-            return out[:2000]
+            return out[:10000]
         except subprocess.TimeoutExpired:
             return f"(timeout after {timeout}s)"
         except Exception as e:

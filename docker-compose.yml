@@ -1,123 +1,102 @@
-# Kernel — Docker Compose
-#
-# Profile: (default) — mounts model from host filesystem
-#   docker compose up -d kernel
-#
-# Profile: docker-model — uses Docker Model Runner (docker model pull gemma4)
-#   docker model pull gemma4
-#   docker compose --profile docker-model up -d kernel-hub
-#
-# Profile: cli — interactive chat via local model
-#   docker compose --profile cli run --rm kernel-cli
-#
-# Profile: docker-model-cli — interactive chat via Docker Model Runner
-#   docker model pull gemma4
-#   docker compose --profile docker-model-cli run --rm kernel-hub-cli
-
 services:
-
   kernel:
     build: .
     container_name: kernel
     restart: unless-stopped
     ports:
-      - "8769:8769"
+    - 8769:8769
     volumes:
-      # Mount model from host — no re-download
-      - /mnt/e/models/huggingface:/models:ro
-      # Persist session memory
-      - kernel-memory:/root
-      # Persist ecosystem bootstrap cache
-      - kernel-ecosystem:/data/ecosystem
+    - /mnt/e/models/huggingface:/models:ro
+    - kernel-memory:/root
+    - kernel-ecosystem:/data/ecosystem
     environment:
-      - HF_HOME=/models
-      - TRANSFORMERS_CACHE=/models
-      - SKILLS_DIR=${SKILLS_DIR:-/app/skills}
-      - ROUTINES_DIR=${ROUTINES_DIR:-/app/routines}
-      - ECOSYSTEM_CACHE=/data/ecosystem
-    # GPU passthrough (CUDA)
+    - HF_HOME=/models
+    - TRANSFORMERS_CACHE=/models
+    - SKILLS_DIR=${SKILLS_DIR:-/app/skills}
+    - ROUTINES_DIR=${ROUTINES_DIR:-/app/routines}
+    - ECOSYSTEM_CACHE=/data/ecosystem
     deploy:
       resources:
         reservations:
           devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    # Override config to use container paths
-    command: >
-      python -m uvicorn src.api:app
-      --host 0.0.0.0
-      --port 8769
+          - driver: nvidia
+            count: 1
+            capabilities:
+            - gpu
+    command: 'python -m uvicorn api:app --host 0.0.0.0 --port 8769
 
-  # Chat CLI variant — run interactively
+      '
+    working_dir: /app/src
   kernel-cli:
     build: .
     container_name: kernel-cli
-    profiles: ["cli"]  # only starts with: docker compose --profile cli run kernel-cli
+    profiles:
+    - cli
     stdin_open: true
     tty: true
     volumes:
-      - /mnt/e/models/huggingface:/models:ro
-      - kernel-memory:/root
+    - /mnt/e/models/huggingface:/models:ro
+    - kernel-memory:/root
     environment:
-      - HF_HOME=/models
+    - HF_HOME=/models
     deploy:
       resources:
         reservations:
           devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+          - driver: nvidia
+            count: 1
+            capabilities:
+            - gpu
     command: ./kernel
-
-  # Profile: docker-model — uses docker model pull gemma4 (no local path needed)
+    working_dir: /app/src
   kernel-hub:
     build: .
     container_name: kernel-hub
-    profiles: ["docker-model"]
+    profiles:
+    - docker-model
     restart: unless-stopped
     ports:
-      - "8769:8769"
+    - 8769:8769
     volumes:
-      - kernel-memory:/root
+    - kernel-memory:/root
     environment:
-      - MODEL_SOURCE=docker-hub
-      - MODEL_ID=gemma4
-      # Docker Model Runner endpoint (when available)
-      - DOCKER_MODEL_RUNNER_ENDPOINT=http://model-runner:8080
+    - MODEL_SOURCE=docker-hub
+    - MODEL_ID=gemma4
+    - DOCKER_MODEL_RUNNER_ENDPOINT=http://model-runner:8080
     deploy:
       resources:
         reservations:
           devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    command: >
-      python -m uvicorn src.api:app
-      --host 0.0.0.0
-      --port 8769
+          - driver: nvidia
+            count: 1
+            capabilities:
+            - gpu
+    command: 'python -m uvicorn api:app --host 0.0.0.0 --port 8769
 
-  # Interactive CLI via Docker Model Runner
+      '
+    working_dir: /app/src
   kernel-hub-cli:
     build: .
     container_name: kernel-hub-cli
-    profiles: ["docker-model-cli"]
+    profiles:
+    - docker-model-cli
     stdin_open: true
     tty: true
     volumes:
-      - kernel-memory:/root
+    - kernel-memory:/root
     environment:
-      - MODEL_SOURCE=docker-hub
-      - MODEL_ID=gemma4
+    - MODEL_SOURCE=docker-hub
+    - MODEL_ID=gemma4
     deploy:
       resources:
         reservations:
           devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+          - driver: nvidia
+            count: 1
+            capabilities:
+            - gpu
     command: ./kernel
-
+    working_dir: /app/src
 volumes:
-  kernel-memory:
-  kernel-ecosystem:
+  kernel-memory: null
+  kernel-ecosystem: null
