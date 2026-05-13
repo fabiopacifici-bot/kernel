@@ -219,6 +219,10 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
             final_text = parsed.get("content", "")
             if "<think>" in final_text and "</think>" in final_text:
                 final_text = final_text[final_text.index("</think>") + len("</think>"):].strip()
+            if not final_text.strip() and step > 0:
+                print(f"[tool_loop] empty content at step {step} — re-prompting", flush=True)
+                current_messages.append({"role": "user", "content": "Continue. Use a tool or provide your final answer."})
+                continue
             return {"type": "result", "result": final_text}
 
         tool_responses = []
