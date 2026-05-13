@@ -226,3 +226,15 @@ def health() -> dict:
         return resp_lines[0] if resp_lines else {}
     except Exception as e:
         return {"error": str(e)}
+
+
+def swap_model(model_path: str, drafter_path: str = None, dtype: str = "bfloat16") -> dict:
+    """Hot-swap the loaded model. drafter_path=None keeps config default, '' disables."""
+    try:
+        params = {"model_path": model_path, "dtype": dtype}
+        if drafter_path is not None:
+            params["drafter_path"] = drafter_path
+        resp_lines = _call({"method": "swap_model", "params": params}, timeout=300)
+        return resp_lines[0] if resp_lines else {"error": "no response"}
+    except Exception as e:
+        return {"error": str(e)}
