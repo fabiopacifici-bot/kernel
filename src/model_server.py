@@ -152,9 +152,8 @@ def _handle_infer(params: dict) -> dict:
 
 def _handle_infer_with_tools(params: dict, send_line) -> dict:
     """
-    Agentic tool-calling loop.
-    Streams intermediate steps back as {"type": "step", ...} lines,
-    then returns final {"type": "result", "result": "..."}.
+    Agentic tool-calling loop using Gemma 4 native function-calling.
+    See kernel-evolving for full design notes.
     """
     _ensure_model()
     import json
@@ -162,72 +161,79 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
     from tools import execute_tool
 
     messages = params["messages"]
-    tools = params.get("tools", [])
-    workspace = os.path.expanduser(params.get("workspace", "~/.openclaw/workspace"))
+    raw_tools = params.get("tools", [])
+    workspace = os.path.expanduser(params.get("workspace", "~/.kernel/workspace"))
     max_steps = params.get("max_steps", 15)
+    enable_thinking = params.get("enable_thinking", True)
+
+    def _to_openai_tool(t: dict) -> dict:
+        if "type" in t and t["type"] == "function":
+            return t
+        return {"type": "function", "function": {
+            "name": t.get("name", ""),
+            "description": t.get("description", ""),
+            "parameters": t.get("parameters", {}),
+        }}
+    tools_openai = [_to_openai_tool(t) for t in raw_tools]
 
     current_messages = []
     for m in messages:
-        role = "model" if m["role"] == "assistant" else m["role"]
+        role = m["role"]
         content = m["content"]
-        if isinstance(content, str):
-            content = [{"type": "text", "text": content}]
+        if isinstance(content, list):
+            content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
         current_messages.append({"role": role, "content": content})
 
     for step in range(max_steps):
-        text = _processor.apply_chat_template(
-            current_messages,
-            tools=tools,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
-        inputs = _processor(text=text, return_tensors="pt").to(_model.device)
-        input_len = inputs["input_ids"].shape[-1]
+        try:
+            inputs = _processor.apply_chat_template(
+                current_messages, tools=tools_openai, tokenize=True,
+                return_dict=True, return_tensors="pt",
+                add_generation_prompt=True, enable_thinking=enable_thinking,
+            ).to(_model.device)
+        except Exception as e:
+            print(f"[tool_loop] template error: {e} — fallback", flush=True)
+            text = _processor.apply_chat_template(
+                current_messages, tools=tools_openai, tokenize=False,
+                add_generation_prompt=True, enable_thinking=False,
+            )
+            inputs = _processor(text=text, return_tensors="pt").to(_model.device)
 
+        input_len = inputs["input_ids"].shape[-1]
         with torch.no_grad():
-            _gen_kwargs = dict(max_new_tokens=512, do_sample=False)
+            _gen_kwargs = dict(max_new_tokens=1024, do_sample=True, temperature=1.0, top_p=0.95, top_k=64)
             if _drafter is not None:
                 _gen_kwargs["assistant_model"] = _drafter
             out = _model.generate(**inputs, **_gen_kwargs)
 
         response_raw = _processor.decode(out[0][input_len:], skip_special_tokens=False)
-        response_clean = _processor.decode(out[0][input_len:], skip_special_tokens=True).strip()
+        parsed = _processor.parse_response(response_raw)
+        tool_calls = parsed.get("tool_calls", [])
 
-        # Import parse helper from model.py
-        from model import _parse_tool_call
-        tool_call = _parse_tool_call(response_raw)
-        if tool_call is None:
-            return {"type": "result", "result": response_clean}
+        if not tool_calls:
+            final_text = parsed.get("content", "")
+            if "<think>" in final_text and "</think>" in final_text:
+                final_text = final_text[final_text.index("</think>") + len("</think>"):].strip()
+            return {"type": "result", "result": final_text}
 
-        tool_name = tool_call.get("name") or tool_call.get("function", {}).get("name", "")
-        tool_args = tool_call.get("arguments") or tool_call.get("function", {}).get("arguments", {})
-        if isinstance(tool_args, str):
-            try:
-                tool_args = json.loads(tool_args)
-            except Exception:
-                tool_args = {}
+        tool_responses = []
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            tool_name = fn.get("name", "")
+            tool_args = fn.get("arguments", {})
+            if isinstance(tool_args, str):
+                try:
+                    tool_args = json.loads(tool_args)
+                except Exception:
+                    tool_args = {}
+            print(f"[tool_loop] step {step+1}: {tool_name}({json.dumps(tool_args)[:80]})", flush=True)
+            result_str = execute_tool(tool_name, tool_args, workspace=workspace)
+            print(f"[tool_loop] result: {result_str[:100]}", flush=True)
+            send_line(json.dumps({"type": "step", "step": step+1, "tool": tool_name, "args": tool_args, "result": result_str}))
+            tool_responses.append({"name": tool_name, "response": {"result": result_str}})
 
-        result_str = execute_tool(tool_name, tool_args, workspace=workspace)
-
-        # Stream step back to client
-        step_line = json.dumps({
-            "type": "step",
-            "step": step + 1,
-            "tool": tool_name,
-            "args": tool_args,
-            "result": result_str,
-        })
-        send_line(step_line)
-
-        current_messages.append({
-            "role": "model",
-            "content": [{"type": "text", "text": response_clean or f"[called {tool_name}]"}]
-        })
-        current_messages.append({
-            "role": "user",
-            "content": [{"type": "text", "text": f"Tool `{tool_name}` result:\n{result_str}\n\nPlease provide your final answer based on the tool result above."}]
-        })
+        current_messages.append({"role": "assistant", "tool_calls": tool_calls})
+        current_messages.append({"role": "tool", "tool_responses": tool_responses})
 
     return {"type": "result", "result": "(max steps reached)"}
 
