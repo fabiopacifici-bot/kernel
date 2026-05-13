@@ -169,7 +169,7 @@ def _handle_infer_with_tools(params: dict, send_line) -> dict:
     raw_tools = params.get("tools", [])
     workspace = os.path.expanduser(params.get("workspace", "~/.kernel/workspace"))
     max_steps = params.get("max_steps", 15)
-    enable_thinking = params.get("enable_thinking", True)
+    enable_thinking = params.get("enable_thinking", False)
 
     def _to_openai_tool(t: dict) -> dict:
         if "type" in t and t["type"] == "function":
