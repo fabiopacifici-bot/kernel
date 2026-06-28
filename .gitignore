@@ -28,3 +28,9 @@ chat_history/
 
 # Bug: Path("~/...") without expanduser created a literal ~ directory
 src/~/
+
+# Local workspace artifacts — scout plans, tasks.yml, etc.
+.specs/
+
+# Container deployment config — environment-specific paths
+config.container.yaml

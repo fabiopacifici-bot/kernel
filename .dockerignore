@@ -1,0 +1,10 @@
+.git
+.venv
+__pycache__
+*.pyc
+.specs
+.env
+*.egg-info
+models/
+runs/
+wandb/
